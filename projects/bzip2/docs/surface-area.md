@@ -370,7 +370,7 @@ initialised (`bzlib.c:189-209`). `next_in`, `avail_in`, `next_out`, `avail_out` 
 On any return after the parameter check, `strm->bzalloc`/`strm->bzfree` have been replaced by
 the defaults if they were `NULL` (`bzlib.c:165-166`). On failure `strm->state` is unchanged.
 
-Side effects: four `bzalloc` calls (sizes in [§3](#bz_stream)); no I/O; no output even with high
+Side effects: up to four `bzalloc` calls (sizes in [§3](#bz_stream)): one for the `EState`, then the three work arrays. If the `EState` allocation fails there is exactly one call and the function returns at `bzlib.c:169`; if a work-array allocation fails all three array allocations are still attempted before freeing (`bzlib.c:177-187`); no I/O; no output even with high
 `verbosity`; no assertion paths. Thread safety: safe on distinct streams.
 
 #### `BZ2_bzCompress`
@@ -540,7 +540,7 @@ bytes copied from `unused`.
 | `f` | open for reading, `ferror(f) == 0`. Borrowed: must stay open until `BZ2_bzReadClose`. | non-`NULL` |
 | `verbosity` | as `BZ2_bzDecompressInit`. | 0..4 |
 | `small` | as `BZ2_bzDecompressInit`. | 0 or 1 |
-| `unused` | bytes to decompress before reading `f` (typically the output of `BZ2_bzReadGetUnused` of a previous stream). Copied into the handle (`bzlib.c:1127-1131`), so the caller's buffer may be reused on return. if `NULL`, `nUnused` must be 0 |
+| `unused` | bytes to decompress before reading `f` (typically the output of `BZ2_bzReadGetUnused` of a previous stream). Copied into the handle (`bzlib.c:1127-1131`), so the caller's buffer may be reused on return. | if `NULL`, `nUnused` must be 0 |
 | `nUnused` | number of bytes at `unused`. | 0..`BZ_MAX_UNUSED` |
 
 `*bzerror` (return value `NULL` unless `BZ_OK`):
@@ -663,6 +663,12 @@ whatever compressed output becomes available to `f` with `fwrite`.
 | other codes from `BZ2_bzCompress` | any result other than `BZ_RUN_OK` (`bzlib.c:990-992`). Reachable at least as `BZ_SEQUENCE_ERROR` when the embedded stream has left RUNNING, e.g. after a `BZ2_bzWriteClose` that failed part-way left it FINISHING (`bzlib.c:452-453`). With the stream in RUNNING, `avail_out = 5000` and `avail_in > 0`, every `BZ_RUN` call should make progress, so `BZ_PARAM_ERROR` from line 425 is not expected (**uncertain**). |
 | `BZ_OK` | `len == 0` (`bzlib.c:981-982`) or all input consumed (`bzlib.c:1002-1003`). |
 
+Every call first resets `lastErr` to `BZ_OK` (`bzlib.c:973`), so only the most recent call's
+outcome influences `BZ2_bzWriteClose`. Postconditions on `BZ_OK`: all `len` bytes have been
+consumed by the compressor, and any compressed output produced so far has been written to `f`;
+up to one block of input may still be held inside the compressor. On `BZ_IO_ERROR` or a
+`BZ2_bzCompress` error an unspecified prefix of `buf` has been consumed.
+
 #### `BZ2_bzWriteClose`
 
 ```c
@@ -701,8 +707,22 @@ Behaviour, in order:
    the stream is ended and the handle `free`d (`bzlib.c:1083-1085`).
 
 Consequences: with `abandon != 0` the call always frees the handle and reports `BZ_OK`, writes
-no trailer and does not `fflush`. With `abandon == 0` after an earlier `BZ2_bzWrite` error
-(`lastErr != BZ_OK`) no trailer is written but `f` is still flushed and the result is `BZ_OK`.
+no trailer and does not `fflush`. With `abandon == 0` and `lastErr != BZ_OK` (the most recent
+call on the handle failed; `BZ2_bzWrite` resets `lastErr` to `BZ_OK` on entry, `bzlib.c:973`)
+no trailer is written, and the outcome depends on `ferror(f)`:
+
+- If `ferror(f)` is set on entry, the result is `BZ_IO_ERROR` from step 3 (`bzlib.c:1040-1041`):
+  no flush, no counts, handle **not** freed. This is the usual case after a `BZ_IO_ERROR` from
+  `BZ2_bzWrite`, since both of its `BZ_IO_ERROR` exits (`bzlib.c:978-979`, `996-999`) are
+  normally accompanied by the stream's error indicator. (A short `fwrite` that does not set the
+  indicator would instead fall through to the next case; whether a C library does that is
+  outside the source, **uncertain**.)
+- If `ferror(f)` is clear (for example after a `BZ_PARAM_ERROR` or `BZ_SEQUENCE_ERROR` from
+  `BZ2_bzWrite`, which leave `lastErr` set), `f` is flushed; if `fflush` succeeds the handle
+  is freed with `BZ_OK`, otherwise the result is `BZ_IO_ERROR` and the handle stays allocated
+  (`bzlib.c:1068-1072`). The data in `f` is then an incomplete stream without end-of-stream
+  marker, even though `BZ_OK` is reported.
+
 Whenever the handle was not freed, the caller must call again with `abandon = 1` to release it
 (this is what `BZ2_bzclose` does, `bzlib.c:1525-1528`). Side effects: `fwrite`, `fflush`, `free`,
 `bzfree`; verbosity output while finishing.
@@ -968,8 +988,9 @@ would not pass the 1 on (`bzlib.c:851`). Allocates `tt` or `ll16`/`ll4` through 
 
 ### `BZ2_indexIntoF`
 `Int32 BZ2_indexIntoF ( Int32 indx, Int32 *cftab );` (decl `bzlib_private.h:484-485`). Returns
-the largest `nb` in 0..255 with `cftab[nb] <= indx`, by binary search over `cftab[0..256]`
-(`bzlib.c:687-698`). Pure. Defined `__inline__` but has external linkage because of the
+the largest `nb` in 0..255 with `cftab[nb] <= indx` (`nb == 0` is never tested against
+`cftab[0]`), by binary search that reads only `cftab[1..255]` (`mid` stays in 1..255,
+`bzlib.c:687-698`); this presumes `cftab` nondecreasing. Pure. Defined `__inline__` but has external linkage because of the
 `extern` declaration.
 
 ### `BZ2_bz__AssertH__fail`
@@ -1305,8 +1326,11 @@ authoritative.
     (`manual.xml:1987-1989`); code also rejects `workFactor` outside 0..250 and `verbosity`
     outside 0..4 (`bzlib.c:928-932`) **(verified)**.
 11. **`BZ2_bzWriteClose` after an error.** Manual: the only action is to release memory; no
-    `fflush` (`manual.xml:2075-2083`). Code: with `abandon == 0` it still calls `fflush`
-    (`bzlib.c:1068-1072`); it skips only the trailer. Manual also does not mention that
+    `fflush` (`manual.xml:2075-2083`). Code: with `abandon == 0` it first returns `BZ_IO_ERROR`
+    without freeing anything if `ferror(f)` is set (`bzlib.c:1040-1041`), which is the usual
+    state after an I/O error from `BZ2_bzWrite`; only if `ferror(f)` is clear does it skip the
+    trailer, call `fflush` and free the handle (`bzlib.c:1068-1085`), returning `BZ_OK` unless
+    `fflush` fails. Manual also does not mention that
     `b == NULL` gives `BZ_OK` (`bzlib.c:1033-1034`), nor that the handle stays allocated when
     `BZ_IO_ERROR` is returned (`bzlib.c:1040-1041`, `1060-1061`, `1070-1071`).
 12. **`BZ2_bzReadGetUnused` twice.** Not in the manual: a successful call resets `lastErr` to

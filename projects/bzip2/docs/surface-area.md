@@ -952,8 +952,13 @@ lengths 1..20 (`decompress.c:327`). No validation of its own.
 machine (a `switch` over `s->state` with `case` labels inside `GET_BITS`, `decompress.c:43-65`,
 `195`) that reads the stream header, block headers, tables and Huffman data, and builds the
 inverse-BWT vector. Returns `BZ_OK` (needs input, or block ready with `s->state = BZ_X_OUTPUT`),
-`BZ_STREAM_END` (with `s->state = BZ_X_IDLE`), `BZ_DATA_ERROR_MAGIC`, `BZ_DATA_ERROR`,
-`BZ_MEM_ERROR`. Local variables are saved in `s->save_*` on every return
+`BZ_STREAM_END` (with `s->state = BZ_X_IDLE`), `BZ_DATA_ERROR_MAGIC` (bad `BZh` or block-size
+byte, `decompress.c:198-208`), `BZ_MEM_ERROR` (block buffer allocation fails,
+`decompress.c:211-220`), `BZ_DATA_ERROR` (bad block or end-of-stream magic, `225-235`,
+`591-599`; `origPtr` out of range, `261-264`, `497-498`; no symbols in use, `283`; bad
+`nGroups`/`nSelectors`/selector, `288-297`; code length outside 1..20, `327`; Huffman decoding
+errors in `GET_MTF_VAL`, `75-101`; run too long or block overflow, `396`, `410`, `417`, `427`;
+bad `unzftab`/`cftab`, `502-522`). Local variables are saved in `s->save_*` on every return
 (`decompress.c:619-646`); the exception is the `return True;` inside `BZ_GET_FAST`/`BZ_GET_SMALL`
 used at `decompress.c:557`, `560`, `576`, `579` (`bzlib_private.h:446`, `477`), which returns 1
 without saving, after `s->state` is already `BZ_X_OUTPUT`; the preceding `cftab` checks
@@ -1067,9 +1072,12 @@ Short flags can be combined (`-vk9`). `-c` together with `-t` is rejected with e
   (`bzip2.c:1059-1088`, `1309-1310`, `1486-1488`). Then the input is deleted unless `-k`
   (`bzip2.c:1312-1315`, `1490-1493`).
 - Decompression handles concatenated streams: after each `BZ_STREAM_END` the unused bytes are
-  fed to a new `BZ2_bzReadOpen` until EOF (`bzip2.c:454-482`). If a later stream has a bad magic
-  number the rest is reported as "trailing garbage after EOF ignored" and the file counts as
-  success (`bzip2.c:533-544`, `626-637`).
+  fed to a new `BZ2_bzReadOpen` until EOF (`bzip2.c:454-482`). Without `-f`, if a later stream
+  has a bad magic number the rest is reported as "trailing garbage after EOF ignored" and the
+  file counts as success (`bzip2.c:533-544`, `626-637`). With `-f`, a bad magic number in a later
+  stream instead jumps to `trycat` (`bzip2.c:465`, `506-517`), which rewinds the input and appends
+  *all* of it, including the already-decompressed streams, to the output; see
+  [§9 item 18](#9-discrepancies-between-the-documentation-and-the-code).
 - If the *first* stream has a bad magic number: without `-f` the file is reported as "not a
   bzip2 file", its F2F output is removed and exit status 2 is recorded, and processing continues
   with the next file (`bzip2.c:1495-1515`); with `-f` the whole input is copied unchanged to the
@@ -1101,9 +1109,11 @@ above add library diagnostics.
 - Prints a banner to `stderr` always (`bzip2recover.c:351-352`).
 - Pass 1 scans the input bit by bit for the 48-bit block magic `0x314159265359` and end-of-stream
   magic `0x177245385090` (`bzip2recover.c:316-320`, `403-447`) and records candidate blocks of at
-  least 130 bits (`bzip2recover.c:431-440`). It aborts with exit 1 once 49999 magic-pattern
-  matches (recorded or not) have been seen (`currBlock >= BZ_MAX_HANDLED_BLOCKS - 1`,
-  `bzip2recover.c:326`, `441-442`).
+  least 130 bits (`bzip2recover.c:431-440`). It aborts with exit 1 on the 50000th
+  magic-pattern match (recorded or not): `currBlock` starts at 0 (`bzip2recover.c:398`) and the
+  check `currBlock >= BZ_MAX_HANDLED_BLOCKS - 1` runs before `currBlock++`
+  (`bzip2recover.c:326`, `441-443`), so 49999 matches are accepted and the 50000th aborts with
+  "appears to contain more than 50000 blocks" (`tooManyBlocks`, `bzip2recover.c:129-140`).
 - Pass 2 writes each block as a separate single-block stream `rec%05d<basename>` in the
   directory of the input, with `.bz2` appended unless the name already ends in `.bz2`
   (`bzip2recover.c:507-527`). Each file is `BZh9` + block magic + the block bits + end-of-stream

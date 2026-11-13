@@ -1565,14 +1565,57 @@
           "valid": "valid DState"
         }
       ],
-      "returns": "BZ_OK, BZ_STREAM_END, BZ_DATA_ERROR_MAGIC, BZ_DATA_ERROR or BZ_MEM_ERROR.",
-      "errors": [],
-      "preconditions": [],
-      "postconditions": [],
+      "returns": "BZ_OK (input exhausted mid-parse, decompress.c:54; or a block is fully decoded and s->state = BZ_X_OUTPUT, decompress.c:584), BZ_STREAM_END (end-of-stream marker and stored combined CRC read, s->state = BZ_X_IDLE, decompress.c:611-612), BZ_DATA_ERROR_MAGIC, BZ_DATA_ERROR or BZ_MEM_ERROR (see errors). All returns go through RETURN -> save_state_and_return (decompress.c:619-646) except the BZ_GET_FAST/BZ_GET_SMALL `return True` noted in the summary.",
+      "errors": [
+        {
+          "code": "BZ_DATA_ERROR_MAGIC",
+          "when": "Stream header: first byte != 'B', second != 'Z', third != 'h', or block-size byte outside '1'..'9' (decompress.c:198-208)."
+        },
+        {
+          "code": "BZ_MEM_ERROR",
+          "when": "bzalloc of the block buffer fails right after the stream header: ll16 or ll4 NULL when small, tt NULL otherwise (decompress.c:211-220)."
+        },
+        {
+          "code": "BZ_DATA_ERROR",
+          "when": "Block header magic byte other than 0x31 41 59 26 53 59 (decompress.c:225-235) or end-of-stream magic byte other than 0x72 45 38 50 90 (decompress.c:591-599)."
+        },
+        {
+          "code": "BZ_DATA_ERROR",
+          "when": "origPtr < 0 or > 10 + 100000*blockSize100k (decompress.c:261-264); no byte values in use (nInUse == 0, decompress.c:283)."
+        },
+        {
+          "code": "BZ_DATA_ERROR",
+          "when": "nGroups outside 2..6 (decompress.c:288); nSelectors < 1 (decompress.c:290); a unary selector value >= nGroups (decompress.c:297)."
+        },
+        {
+          "code": "BZ_DATA_ERROR",
+          "when": "Coding-table delta walks a code length outside 1..20 (decompress.c:327)."
+        },
+        {
+          "code": "BZ_DATA_ERROR",
+          "when": "Huffman decoding (GET_MTF_VAL): more groups needed than nSelectors, code longer than 20 bits, or decoded index outside 0..BZ_MAX_ALPHA_SIZE-1 (decompress.c:75-101)."
+        },
+        {
+          "code": "BZ_DATA_ERROR",
+          "when": "RUNA/RUNB run length N >= 2*1024*1024 (decompress.c:396); block would exceed nblockMAX = 100000*blockSize100k symbols (decompress.c:410, 417, 427)."
+        },
+        {
+          "code": "BZ_DATA_ERROR",
+          "when": "After the block: origPtr >= nblock (decompress.c:497-498); an unzftab entry outside 0..nblock, a cftab entry outside 0..nblock, or cftab descending (decompress.c:502-522)."
+        }
+      ],
+      "preconditions": [
+        "s was set up by BZ2_bzDecompressInit and s->state >= BZ_X_MAGIC_1 (the only caller, BZ2_bzDecompress, checks this, bzlib.c:841-842); s->strm->next_in/avail_in describe the available input."
+      ],
+      "postconditions": [
+        "On BZ_OK with s->state == BZ_X_OUTPUT the block is decoded into tt or ll16/ll4 and the inverse-BWT start (tPos, nblock_used, k0, CRC init) is set up (decompress.c:524-581); otherwise s->state names the GET_* point to resume at.",
+        "On BZ_STREAM_END s->state == BZ_X_IDLE and s->storedCombinedCRC holds the stored combined CRC; the caller compares it (bzlib.c:843-849).",
+        "On error the stream is left mid-parse; BZ2_bzDecompress returns the code to the user unchanged (bzlib.c:851)."
+      ],
       "side_effects": [
         "bzalloc of tt or ll16/ll4 (decompress.c:211-220).",
         "stderr at verbosity >= 2.",
-        "AssertH 4001/4002."
+        "default case of the state switch: AssertH 4001 (decompress.c:614); falling out of the switch: AssertH 4002 (decompress.c:617)."
       ],
       "thread_safety": "Operates only on its arguments; same rules as the owning stream.",
       "no_stdio": true,
@@ -1630,7 +1673,7 @@
       ],
       "thread_safety": "Terminates the process.",
       "no_stdio": false,
-      "source": "bzlib.c:41",
+      "source": "bzlib.c:40",
       "declared": "bzlib_private.h:58"
     }
   ],
@@ -2073,7 +2116,7 @@
       ],
       "exit_codes": [
         "0: success",
-        "1: wrong argument count, name too long, unreadable input, no blocks found, 49999 block/end magic matches (BZ_MAX_HANDLED_BLOCKS 50000), read/write/malloc error, output file already exists"
+        "1: wrong argument count, name too long, unreadable input, no blocks found, 50000th block/end magic match (BZ_MAX_HANDLED_BLOCKS 50000; currBlock starts at 0 and is checked before increment, bzip2recover.c:398, 441-443), read/write/malloc error, output file already exists"
       ],
       "environment": []
     },

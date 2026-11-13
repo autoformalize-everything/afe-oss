@@ -384,7 +384,7 @@
           "name": "unused",
           "type": "void*",
           "meaning": "Bytes to decompress before reading f; copied into the handle (bzlib.c:1127-1131), so the caller may reuse the buffer on return.",
-          "valid": "NULL iff nUnused == 0 (non-NULL with 0 also accepted)"
+          "valid": "if NULL, nUnused must be 0; if non-NULL, nUnused in 0..5000"
         },
         {
           "name": "nUnused",
@@ -1109,7 +1109,7 @@
         "verbosity 0, workFactor 30, no unused bytes (bzlib.c:1394-1402)."
       ],
       "side_effects": [
-        "fopen; malloc; isdigit (locale-dependent)."
+        "fopen; malloc."
       ],
       "thread_safety": "Not reviewed for thread safety by the authors (bzlib.h:227-234); not safe on the same handle concurrently.",
       "no_stdio": false,
@@ -1556,7 +1556,7 @@
       "name": "BZ2_decompress",
       "signature": "Int32 BZ2_decompress ( DState* s )",
       "public": false,
-      "summary": "Resumable parser for one stream: header, block headers, tables, Huffman/MTF data, inverse-BWT setup; returns when it needs input, has a block ready (state BZ_X_OUTPUT) or reaches end of stream. Does not check CRCs. Not part of the public API: declared only in the private bzlib_private.h, takes private structures, not in libbz2.def.",
+      "summary": "Resumable parser for one stream: header, block headers, tables, Huffman/MTF data, inverse-BWT setup; returns when it needs input, has a block ready (state BZ_X_OUTPUT) or reaches end of stream. Does not check CRCs. Locals are saved in s->save_* on every return except the return True inside BZ_GET_FAST/BZ_GET_SMALL at decompress.c:557-579 (apparently unreachable after the cftab checks; uncertain). Not part of the public API: declared only in the private bzlib_private.h, takes private structures, not in libbz2.def.",
       "parameters": [
         {
           "name": "s",
@@ -1933,7 +1933,7 @@
       "value": "(user-defined)",
       "kind": "config",
       "source": "bzlib.h:78-80",
-      "summary": "Defined by clients that load the Windows DLL dynamically (dlltest.c:8). Prevents bzlib.h from defining BZ_EXPORT, so under _WIN32 the declarations become function-pointer variables. No effect elsewhere."
+      "summary": "Defined by clients that load the Windows DLL dynamically (dlltest.c:10). Prevents bzlib.h from defining BZ_EXPORT, so under _WIN32 the declarations become function-pointer variables. No effect elsewhere."
     },
     {
       "name": "BZ_EXPORT",
@@ -2073,7 +2073,7 @@
       ],
       "exit_codes": [
         "0: success",
-        "1: wrong argument count, name too long, unreadable input, no blocks found, more than 50000 blocks, read/write/malloc error, output file already exists"
+        "1: wrong argument count, name too long, unreadable input, no blocks found, 49999 block/end magic matches (BZ_MAX_HANDLED_BLOCKS 50000), read/write/malloc error, output file already exists"
       ],
       "environment": []
     },

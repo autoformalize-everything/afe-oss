@@ -113,7 +113,7 @@ States visible to the caller:
 
 | State | Meaning |
 |---|---|
-| UNINIT | `strm->state` is not a valid `EState` for this `strm` (never initialised, or after `BZ2_bzCompressEnd`, which sets `strm->state = NULL`). |
+| UNINIT | `strm->state` is not a valid `EState` for this `strm` (never initialised, or after `BZ2_bzCompressEnd`, which sets `strm->state = NULL`). Detected only when `state` is `NULL` or points to memory whose first word is not `strm`; a garbage `state` pointer is dereferenced (undefined behaviour). |
 | RUNNING | after a successful `BZ2_bzCompressInit` (`bzlib.c:191`), or after a completed flush. |
 | FLUSHING | `BZ_FLUSH` accepted, not finished. Records `avail_in_expect = strm->avail_in` (`bzlib.c:429-430`). |
 | FINISHING | `BZ_FINISH` accepted, not finished. Records `avail_in_expect = strm->avail_in` (`bzlib.c:435-436`). |
@@ -154,13 +154,17 @@ compared).
 was passed while a flush/finish is in progress; `avail_in` changed during a flush/finish; or a
 `BZ_FINISH` call could make no progress.
 
-**Flush semantics.** `BZ_FLUSH` ends the current block and copies out all *whole bytes* of
-the compressed block, but the final partial word (fewer than 32 bits) stays in the
-compressor's bit buffer, because only the last block is padded and flushed to a byte boundary
-(`compress.c:58-78`, `compress.c:657-666`). Therefore the bytes emitted up to a completed flush
-are not by themselves enough to decode the flushed data: a decoder given exactly those bytes
-produced 0 output bytes in testing **(verified)**. A flush with no pending input emits no block
-(`compress.c:604`, `630`).
+**Flush semantics.** `BZ_FLUSH` ends the current block, but the bit writer drains whole bytes
+from its 32-bit buffer only *before* adding new bits (`compress.c:58-78`), and only the last
+block is drained and padded to a byte boundary (`bsFinishWrite`, `compress.c:46-54`,
+`657-666`). So after a completed flush up to 31 bits of the block (possibly including whole
+bytes) remain in the compressor's bit buffer and are emitted only with the next block or the
+finish. Therefore the bytes emitted up to a completed flush are not by themselves enough to
+decode the flushed data: a decoder given exactly those bytes produced 0 output bytes in testing
+**(verified)**. A flush with no pending input emits no block (`compress.c:604`, `630`), except
+that if it is the stream's first block the stream header is still written
+(`compress.c:622-628`) **(verified** by review: 3 bytes `BZh` emitted, the 4th held in the
+buffer**)**.
 
 ### 2.2 Decompression
 
@@ -169,7 +173,7 @@ Internal `DState.state` is `BZ_X_IDLE=1`, `BZ_X_OUTPUT=2`, or one of the parser 
 
 | State | Meaning |
 |---|---|
-| UNINIT | `strm->state` not valid for `strm` (never initialised or after `BZ2_bzDecompressEnd`). |
+| UNINIT | `strm->state` not valid for `strm` (never initialised or after `BZ2_bzDecompressEnd`, which sets it to `NULL`). Same detection limits as for compression. |
 | PARSING | `state >= BZ_X_MAGIC_1`: reading headers, tables or Huffman data. Initial state after `BZ2_bzDecompressInit` is `BZ_X_MAGIC_1` (`bzlib.c:512`). |
 | OUTPUT | `BZ_X_OUTPUT`: a block has been decoded and its bytes are being written to `next_out` (`decompress.c:527`). |
 | IDLE | `BZ_X_IDLE`: end-of-stream marker and combined CRC read (`decompress.c:611`). |
@@ -313,7 +317,7 @@ Non-negative codes are success/progress codes, negative codes are errors. `BZ2_b
 | Macro | Kind | Effect |
 |---|---|---|
 | `BZ_NO_STDIO` | defined by the user when compiling the library *and* client code | `bzlib.h` does not include `<stdio.h>` (`bzlib.h:25-28`) and does not declare `BZ_MAX_UNUSED`, `BZFILE` or the high-level and zlib-style functions (`bzlib.h:137-202`, `240-275`); `bzlib.c` does not define them (`bzlib.c:881-1242`, `1375-1570`) nor `BZ2_bz__AssertH__fail` (`bzlib.c:40-86`). `AssertH` then calls an external `void bz_internal_error(int errcode)` that the user must supply (link error otherwise), and all verbosity output is compiled out (`bzlib_private.h:86-99`). Remaining library functions: the six stream functions, the two buffer utilities, `BZ2_bzlibVersion`, plus the internals of [§6](#6-exported-internals) **(verified** with `nm`). |
-| `BZ_IMPORT` | defined by client code that loads a Windows DLL dynamically (as `dlltest.c:8` does) | If not defined, `bzlib.h` defines `BZ_EXPORT` (`bzlib.h:78-80`). Only matters under `_WIN32`. |
+| `BZ_IMPORT` | defined by client code that loads a Windows DLL dynamically (as `dlltest.c:10` does) | If not defined, `bzlib.h` defines `BZ_EXPORT` (`bzlib.h:78-80`). Only matters under `_WIN32`. |
 | `BZ_EXPORT` | defined by `bzlib.h` itself unless `BZ_IMPORT` is defined (it may also be defined by the user) | Under `_WIN32`: if defined, `BZ_API(f)` is `WINAPI f` and `BZ_EXTERN` is `extern` (ordinary `__stdcall` declarations); if not defined, `BZ_API(f)` is `(WINAPI * f)` and `BZ_EXTERN` is empty, so every "declaration" in `bzlib.h` becomes a definition of a function-pointer variable to be filled with `GetProcAddress` (`bzlib.h:82-94`, `dlltest.c:36-56`). Not used on other platforms. |
 | `BZ_API(func)` | function-like macro wrapping each public function name | Non-Windows: expands to `func` (`bzlib.h:96`). Windows: `WINAPI func` or `(WINAPI * func)` as above. Used in both the declarations and the definitions in `bzlib.c`, so the library itself must be compiled without `BZ_IMPORT`. |
 | `BZ_EXTERN` | storage-class prefix of each declaration | `extern` except on Windows with `BZ_IMPORT` (empty) (`bzlib.h:89`, `93`, `97`). |
@@ -536,7 +540,7 @@ bytes copied from `unused`.
 | `f` | open for reading, `ferror(f) == 0`. Borrowed: must stay open until `BZ2_bzReadClose`. | non-`NULL` |
 | `verbosity` | as `BZ2_bzDecompressInit`. | 0..4 |
 | `small` | as `BZ2_bzDecompressInit`. | 0 or 1 |
-| `unused` | bytes to decompress before reading `f` (typically the output of `BZ2_bzReadGetUnused` of a previous stream). Copied into the handle (`bzlib.c:1127-1131`), so the caller's buffer may be reused on return. | `NULL` iff `nUnused == 0` |
+| `unused` | bytes to decompress before reading `f` (typically the output of `BZ2_bzReadGetUnused` of a previous stream). Copied into the handle (`bzlib.c:1127-1131`), so the caller's buffer may be reused on return. if `NULL`, `nUnused` must be 0 |
 | `nUnused` | number of bytes at `unused`. | 0..`BZ_MAX_UNUSED` |
 
 `*bzerror` (return value `NULL` unless `BZ_OK`):
@@ -797,7 +801,7 @@ The `FILE*` is opened with `"rb"` or `"wb"` (`bzlib.c:1420-1421`). Fixed paramet
 0`, `workFactor 30`, no unused bytes (`bzlib.c:1394-1402`). Returns the handle, or `NULL` if
 `mode` is `NULL`, `fopen` fails, or `BZ2_bzReadOpen`/`BZ2_bzWriteOpen` fails; in the last case the
 `FILE*` is closed unless it is `stdin`/`stdout` (`bzlib.c:1449-1452`). No error code is
-available. Digit parsing uses `isdigit` (locale-dependent, `bzlib.c:1414`).
+available. Digits are recognised with `isdigit` (`bzlib.c:1414`).
 
 #### `BZ2_bzdopen`
 
@@ -950,7 +954,11 @@ machine (a `switch` over `s->state` with `case` labels inside `GET_BITS`, `decom
 inverse-BWT vector. Returns `BZ_OK` (needs input, or block ready with `s->state = BZ_X_OUTPUT`),
 `BZ_STREAM_END` (with `s->state = BZ_X_IDLE`), `BZ_DATA_ERROR_MAGIC`, `BZ_DATA_ERROR`,
 `BZ_MEM_ERROR`. Local variables are saved in `s->save_*` on every return
-(`decompress.c:619-646`). Allocates `tt` or `ll16`/`ll4` through `bzalloc`. Assertions 4001,
+(`decompress.c:619-646`); the exception is the `return True;` inside `BZ_GET_FAST`/`BZ_GET_SMALL`
+used at `decompress.c:557`, `560`, `576`, `579` (`bzlib_private.h:446`, `477`), which returns 1
+without saving, after `s->state` is already `BZ_X_OUTPUT`; the preceding `cftab` checks
+(`decompress.c:497-522`) appear to make it unreachable (**uncertain**), and `BZ2_bzDecompress`
+would not pass the 1 on (`bzlib.c:851`). Allocates `tt` or `ll16`/`ll4` through `bzalloc`. Assertions 4001,
 4002. Does **not** check CRCs; `BZ2_bzDecompress` does.
 
 ### `BZ2_indexIntoF`
@@ -1005,9 +1013,12 @@ One program, `bzip2.c`. Its behaviour depends on the base name of `argv[0]` (tex
 variables is taken as a file name **(verified)**. A token `--` ends option processing; later
 tokens are file names. Any other token starting with `-` is an option; everything else is a
 file name (`bzip2.c:1852-1858`). The lone token `-` is an option with no letters, i.e. ignored;
-it does not mean standard input **(verified)**. Options are processed in two passes, short then
-long (`bzip2.c:1884-1948`), so their order among themselves does not matter, except that an
-invalid flag or `-h` stops processing at its position.
+it does not mean standard input **(verified)**. Options are processed in two passes over the
+whole argument list, first all short flags, then all long flags (`bzip2.c:1884-1948`). Within
+each pass the last conflicting flag wins (`-d -z` compresses, `-z -d` decompresses), and the
+long-flag pass always overrides the short-flag pass whatever the positions (`--decompress -z`
+decompresses, `-9 --fast` gives block size 1) (`bzip2.c:1890-1891`, `1923-1940`). An invalid
+flag or `-h` stops processing at its position in its pass.
 
 **Options.**
 
@@ -1090,7 +1101,8 @@ above add library diagnostics.
 - Prints a banner to `stderr` always (`bzip2recover.c:351-352`).
 - Pass 1 scans the input bit by bit for the 48-bit block magic `0x314159265359` and end-of-stream
   magic `0x177245385090` (`bzip2recover.c:316-320`, `403-447`) and records candidate blocks of at
-  least 130 bits (`bzip2recover.c:431-440`). At most 50000 blocks (`BZ_MAX_HANDLED_BLOCKS`,
+  least 130 bits (`bzip2recover.c:431-440`). It aborts with exit 1 once 49999 magic-pattern
+  matches (recorded or not) have been seen (`currBlock >= BZ_MAX_HANDLED_BLOCKS - 1`,
   `bzip2recover.c:326`, `441-442`).
 - Pass 2 writes each block as a separate single-block stream `rec%05d<basename>` in the
   directory of the input, with `.bz2` appended unless the name already ends in `.bz2`
@@ -1322,7 +1334,13 @@ authoritative.
 21. **Header comment of `bzdiff`.** Says the one-file form compares with "file1.gz"
     (`bzdiff:10`); the code uses `file1.bz2` (`bzdiff:42-43`).
 22. **`bzip2recover` write errors** print "I/O error reading" (`bzip2recover.c:104-113`).
-23. **`BZ_FLUSH` decodability.** The manual presents `BZ_FLUSH` as terminating the current
+23. **Meaning of IDLE.** The manual's table says compression IDLE "only exists after
+    BZ2_bzCompressEnd or before BZ2_bzCompressInit" and gives `BZ_SEQUENCE_ERROR`
+    (`manual.xml:1325-1328`). In the code IDLE is entered after `BZ_STREAM_END`
+    (`bzlib.c:460`); after `End` `strm->state` is `NULL` and the result is `BZ_PARAM_ERROR`
+    (`bzlib.c:411-414`, `481`). Before `Init` the result depends on whatever the caller left in
+    `strm->state` (`BZ_PARAM_ERROR` only if it is `NULL`).
+24. **`BZ_FLUSH` decodability.** The manual presents `BZ_FLUSH` as terminating the current
     block "for error control purposes" (`manual.xml:1299-1314`). It does not say that up to 31
     bits of the flushed block stay in the bit buffer until the next block or the finish
     (`compress.c:657-666`), so the emitted bytes are not independently decodable **(verified)**.

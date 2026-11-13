@@ -1,0 +1,8 @@
+# build products: tools build in a temporary directory, but keep stray ones out of commits
+*.o
+*.a
+*.so
+*.so.*
+/projects/bzip2/upstream/bzip2
+/projects/bzip2/upstream/bzip2recover
+__pycache__/

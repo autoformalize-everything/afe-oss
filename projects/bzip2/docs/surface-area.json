@@ -1,0 +1,2400 @@
+{
+  "upstream_commit": "f5dfc96063fef2d9c5446d0733867d899ef9b942",
+  "source_root": "projects/bzip2/upstream/",
+  "companion": "surface-area.md",
+  "functions": [
+    {
+      "name": "BZ2_bzCompressInit",
+      "signature": "int BZ2_bzCompressInit ( bz_stream* strm, int blockSize100k, int verbosity, int workFactor )",
+      "public": true,
+      "summary": "Initialise a caller-owned bz_stream for compression: allocate the EState and three work arrays through bzalloc and enter the RUNNING state.",
+      "parameters": [
+        {
+          "name": "strm",
+          "type": "bz_stream*",
+          "meaning": "Caller-owned stream. bzalloc/bzfree/opaque must be set or NULL before the call; other fields need not be initialised. Must not be moved or copied until BZ2_bzCompressEnd (back-pointer check, bzlib.c:414).",
+          "valid": "non-NULL"
+        },
+        {
+          "name": "blockSize100k",
+          "type": "int",
+          "meaning": "Block size in units of 100000 bytes; also written into the stream header (compress.c:627).",
+          "valid": "1..9"
+        },
+        {
+          "name": "verbosity",
+          "type": "int",
+          "meaning": "Diagnostic level for stderr. NOT range-checked here (bzlib.c:159-162); compared with >= thresholds 2,3,4.",
+          "valid": "any int accepted; meaningful 0..4"
+        },
+        {
+          "name": "workFactor",
+          "type": "int",
+          "meaning": "Effort before falling back to the fallback sort. 0 means 30 (bzlib.c:164); values above 100 behave as 100 in BZ2_blockSort (blocksort.c:1063-1064). Output is identical regardless of which sort runs.",
+          "valid": "0..250"
+        }
+      ],
+      "returns": "BZ_OK on success, else an error code; strm->state is set only on BZ_OK.",
+      "errors": [
+        {
+          "code": "BZ_CONFIG_ERROR",
+          "when": "sizeof(int)!=4, sizeof(short)!=2 or sizeof(char)!=1 (bzlib.c:90-97, 157); checked first."
+        },
+        {
+          "code": "BZ_PARAM_ERROR",
+          "when": "strm == NULL, blockSize100k outside 1..9, or workFactor outside 0..250 (bzlib.c:159-162)."
+        },
+        {
+          "code": "BZ_MEM_ERROR",
+          "when": "bzalloc returned NULL for the EState (bzlib.c:169) or any work array (bzlib.c:181-187; partial allocations freed)."
+        },
+        {
+          "code": "BZ_OK",
+          "when": "success."
+        }
+      ],
+      "preconditions": [
+        "strm points to writable bz_stream; strm->bzalloc/bzfree are valid allocator functions or NULL.",
+        "*strm must stay at the same address until BZ2_bzCompressEnd (EState keeps a back-pointer, bzlib.c:170, checked at bzlib.c:413-414, 473-474)."
+      ],
+      "postconditions": [
+        "On BZ_OK: strm->state = new EState, mode RUNNING, sub-state INPUT, blockNo 1, combinedCRC 0 (bzlib.c:189-209).",
+        "On BZ_OK: total_in_lo32/hi32 and total_out_lo32/hi32 = 0 (bzlib.c:203-207).",
+        "next_in/avail_in/next_out/avail_out untouched.",
+        "If the parameter check passed, NULL bzalloc/bzfree have been replaced by default_bzalloc/default_bzfree in *strm (bzlib.c:165-166), even on BZ_MEM_ERROR.",
+        "On failure strm->state is unchanged."
+      ],
+      "side_effects": [
+        "bzalloc(opaque, n, 1) for sizeof(EState), then n*4, (n+34)*4 and 65537*4 bytes, n = 100000*blockSize100k (bzlib.c:168-179): four calls on success; exactly one if the EState allocation fails (return at bzlib.c:169); all four if a work-array allocation fails, after which the non-NULL ones and the EState are bzfree-d (bzlib.c:181-187).",
+        "No I/O, no stderr output, no AssertH paths."
+      ],
+      "thread_safety": "Safe on distinct streams/handles; not safe on the same one concurrently. No global mutable state.",
+      "no_stdio": true,
+      "source": "bzlib.c:148",
+      "declared": "bzlib.h:103-108"
+    },
+    {
+      "name": "BZ2_bzCompress",
+      "signature": "int BZ2_bzCompress ( bz_stream* strm, int action )",
+      "public": true,
+      "summary": "Move data from next_in to compressed output at next_out and drive the RUNNING/FLUSHING/FINISHING/IDLE state machine (surface-area.md section 2.1).",
+      "parameters": [
+        {
+          "name": "strm",
+          "type": "bz_stream*",
+          "meaning": "Stream initialised by BZ2_bzCompressInit and not ended; next_in/avail_in/next_out/avail_out describe caller buffers valid for the duration of the call (not retained).",
+          "valid": "non-NULL, valid state"
+        },
+        {
+          "name": "action",
+          "type": "int",
+          "meaning": "Requested action.",
+          "valid": "BZ_RUN (0), BZ_FLUSH (1), BZ_FINISH (2)"
+        }
+      ],
+      "returns": "A progress code (BZ_RUN_OK, BZ_FLUSH_OK, BZ_FINISH_OK, BZ_STREAM_END) or an error code. The final 'return BZ_OK' (bzlib.c:463) is unreachable.",
+      "errors": [
+        {
+          "code": "BZ_PARAM_ERROR",
+          "when": "strm == NULL, strm->state == NULL, or strm->state->strm != strm (bzlib.c:411-414)."
+        },
+        {
+          "code": "BZ_PARAM_ERROR",
+          "when": "RUNNING and action is BZ_RUN but no byte was consumed or produced (bzlib.c:425), e.g. avail_in == 0 with nothing pending (verified)."
+        },
+        {
+          "code": "BZ_PARAM_ERROR",
+          "when": "RUNNING and action is not BZ_RUN/BZ_FLUSH/BZ_FINISH (bzlib.c:439-440) (verified)."
+        },
+        {
+          "code": "BZ_SEQUENCE_ERROR",
+          "when": "IDLE, i.e. after BZ_STREAM_END (bzlib.c:419-420)."
+        },
+        {
+          "code": "BZ_SEQUENCE_ERROR",
+          "when": "FLUSHING and action != BZ_FLUSH, or avail_in differs from the value recorded at the flush request (bzlib.c:443-445)."
+        },
+        {
+          "code": "BZ_SEQUENCE_ERROR",
+          "when": "FINISHING and action != BZ_FINISH, or avail_in changed (bzlib.c:453-455)."
+        },
+        {
+          "code": "BZ_SEQUENCE_ERROR",
+          "when": "FINISHING and the call made no progress, e.g. avail_out == 0 while output is pending (bzlib.c:456-457) (verified)."
+        },
+        {
+          "code": "BZ_RUN_OK",
+          "when": "RUNNING/BZ_RUN with progress (bzlib.c:424-425); or a flush completed, returning to RUNNING (bzlib.c:449-450), possibly in the same call that requested it (verified)."
+        },
+        {
+          "code": "BZ_FLUSH_OK",
+          "when": "flush not yet complete (bzlib.c:447-448)."
+        },
+        {
+          "code": "BZ_FINISH_OK",
+          "when": "finish not yet complete (bzlib.c:458-459)."
+        },
+        {
+          "code": "BZ_STREAM_END",
+          "when": "finish complete; stream now IDLE (bzlib.c:460-461), possibly in the same call that requested BZ_FINISH (verified)."
+        }
+      ],
+      "preconditions": [
+        "strm initialised by BZ2_bzCompressInit (passing a decompression stream is not detected and is undefined).",
+        "While FLUSHING/FINISHING, avail_in must stay exactly as the library left it (bzlib.c:444, 454)."
+      ],
+      "postconditions": [
+        "next_in/avail_in/total_in_* advanced by bytes consumed; next_out/avail_out/total_out_* by bytes produced.",
+        "RUNNING+BZ_FLUSH records avail_in_expect=avail_in and enters FLUSHING; RUNNING+BZ_FINISH enters FINISHING (bzlib.c:428-438).",
+        "After a completed BZ_FLUSH, fewer than 32 bits of the last block remain in the internal bit buffer; the bytes emitted so far are not independently decodable (compress.c:657-666) (verified)."
+      ],
+      "side_effects": [
+        "No allocation, no I/O.",
+        "stderr output when verbosity >= 2 (per block) and >= 3/4 (details) via BZ2_compressBlock/BZ2_blockSort.",
+        "May end in BZ2_bz__AssertH__fail (exit(3)) via internal assertions 1001-1007, 2001-2002, 3001-3007; reachability not established."
+      ],
+      "thread_safety": "Not safe on the same stream concurrently; safe on distinct streams.",
+      "no_stdio": true,
+      "source": "bzlib.c:407",
+      "declared": "bzlib.h:110-113"
+    },
+    {
+      "name": "BZ2_bzCompressEnd",
+      "signature": "int BZ2_bzCompressEnd ( bz_stream* strm )",
+      "public": true,
+      "summary": "Free all memory of a compression stream in any initialised state and set strm->state to NULL.",
+      "parameters": [
+        {
+          "name": "strm",
+          "type": "bz_stream*",
+          "meaning": "Stream initialised by BZ2_bzCompressInit.",
+          "valid": "non-NULL, valid state"
+        }
+      ],
+      "returns": "BZ_OK, or BZ_PARAM_ERROR.",
+      "errors": [
+        {
+          "code": "BZ_PARAM_ERROR",
+          "when": "strm == NULL, strm->state == NULL, or strm->state->strm != strm (bzlib.c:471-474); so a second End returns BZ_PARAM_ERROR (verified)."
+        },
+        {
+          "code": "BZ_OK",
+          "when": "memory released."
+        }
+      ],
+      "preconditions": [
+        "strm initialised by BZ2_bzCompressInit and not yet ended (a second End gives BZ_PARAM_ERROR because state is NULL, bzlib.c:471-474).",
+        "Any compression state is accepted (RUNNING, FLUSHING, FINISHING, IDLE)."
+      ],
+      "postconditions": [
+        "arr1, arr2, ftab and the EState passed to bzfree (bzlib.c:476-479); strm->state == NULL (bzlib.c:481). Other fields unchanged; pending output discarded."
+      ],
+      "side_effects": [
+        "bzfree x4."
+      ],
+      "thread_safety": "Safe on distinct streams/handles; not safe on the same one concurrently. No global mutable state.",
+      "no_stdio": true,
+      "source": "bzlib.c:468",
+      "declared": "bzlib.h:115-117"
+    },
+    {
+      "name": "BZ2_bzDecompressInit",
+      "signature": "int BZ2_bzDecompressInit ( bz_stream *strm, int verbosity, int small )",
+      "public": true,
+      "summary": "Initialise a caller-owned bz_stream for decompressing one stream; allocates only the DState (block arrays are allocated when the header is read).",
+      "parameters": [
+        {
+          "name": "strm",
+          "type": "bz_stream*",
+          "meaning": "Caller-owned stream with bzalloc/bzfree/opaque set or NULL. Must not move until End.",
+          "valid": "non-NULL"
+        },
+        {
+          "name": "verbosity",
+          "type": "int",
+          "meaning": "Diagnostic level for stderr.",
+          "valid": "0..4 (checked)"
+        },
+        {
+          "name": "small",
+          "type": "int",
+          "meaning": "1: low-memory decoder (2.5 bytes per block byte, slower); 0: fast decoder (4 bytes per block byte) (decompress.c:211-220).",
+          "valid": "exactly 0 or 1"
+        }
+      ],
+      "returns": "BZ_OK on success, else an error code.",
+      "errors": [
+        {
+          "code": "BZ_CONFIG_ERROR",
+          "when": "platform type sizes wrong (bzlib.c:499)."
+        },
+        {
+          "code": "BZ_PARAM_ERROR",
+          "when": "strm == NULL, small not 0/1, or verbosity outside 0..4 (bzlib.c:501-503) (verified)."
+        },
+        {
+          "code": "BZ_MEM_ERROR",
+          "when": "bzalloc for the DState failed (bzlib.c:509)."
+        },
+        {
+          "code": "BZ_OK",
+          "when": "success."
+        }
+      ],
+      "preconditions": [
+        "strm non-NULL and points to a writable bz_stream (NULL gives BZ_PARAM_ERROR, bzlib.c:501).",
+        "strm->bzalloc/bzfree/opaque set beforehand (bzalloc/bzfree may be NULL for the defaults); other fields need not be initialised.",
+        "*strm must stay valid and at the same address until BZ2_bzDecompressEnd (DState keeps a back-pointer, checked at bzlib.c:814-815, 867-868)."
+      ],
+      "postconditions": [
+        "On BZ_OK: strm->state = new DState with state BZ_X_MAGIC_1; totals zeroed; tt/ll16/ll4 NULL (bzlib.c:510-525).",
+        "NULL bzalloc/bzfree replaced by defaults (bzlib.c:505-506) once parameters are valid.",
+        "On any failure strm->state is unchanged and nothing remains allocated."
+      ],
+      "side_effects": [
+        "One bzalloc of sizeof(DState). No I/O."
+      ],
+      "thread_safety": "Safe on distinct streams/handles; not safe on the same one concurrently. No global mutable state.",
+      "no_stdio": true,
+      "source": "bzlib.c:492",
+      "declared": "bzlib.h:119-123"
+    },
+    {
+      "name": "BZ2_bzDecompress",
+      "signature": "int BZ2_bzDecompress ( bz_stream* strm )",
+      "public": true,
+      "summary": "Consume compressed bytes from next_in and write decompressed bytes to next_out for exactly one bzip2 stream; checks block and combined CRCs (state machine in surface-area.md section 2.2).",
+      "parameters": [
+        {
+          "name": "strm",
+          "type": "bz_stream*",
+          "meaning": "Stream initialised by BZ2_bzDecompressInit, not ended. avail_out may be 0 (not checked).",
+          "valid": "non-NULL, valid state"
+        }
+      ],
+      "returns": "BZ_OK (needs more input or output space), BZ_STREAM_END, or an error code.",
+      "errors": [
+        {
+          "code": "BZ_PARAM_ERROR",
+          "when": "strm == NULL, strm->state == NULL, or strm->state->strm != strm (bzlib.c:812-815). No avail_out check."
+        },
+        {
+          "code": "BZ_SEQUENCE_ERROR",
+          "when": "stream already ended (state BZ_X_IDLE) (bzlib.c:818) (verified)."
+        },
+        {
+          "code": "BZ_DATA_ERROR_MAGIC",
+          "when": "first 3 bytes not 'BZh' or 4th not '1'..'9' (decompress.c:197-208) (verified)."
+        },
+        {
+          "code": "BZ_MEM_ERROR",
+          "when": "bzalloc of tt or ll16/ll4 failed after the header (decompress.c:216, 219)."
+        },
+        {
+          "code": "BZ_DATA_ERROR",
+          "when": "format violation (decompress.c checks listed in surface-area.md section 8.6), block CRC mismatch (bzlib.c:830-831), combined CRC mismatch (bzlib.c:847-848), or corrupt inverse-BWT walk (bzlib.c:823)."
+        },
+        {
+          "code": "BZ_STREAM_END",
+          "when": "end-of-stream marker read, combined CRC matches, all output delivered (bzlib.c:843-849)."
+        },
+        {
+          "code": "BZ_OK",
+          "when": "input exhausted (decompress.c:54) or output space exhausted (bzlib.c:837-838)."
+        }
+      ],
+      "preconditions": [
+        "strm initialised by BZ2_bzDecompressInit; not called again after BZ_STREAM_END or an error except via BZ2_bzDecompressEnd (manual.xml:1567-1569; behaviour of further calls after errors is unspecified)."
+      ],
+      "postconditions": [
+        "next_in/avail_in/total_in_* and next_out/avail_out/total_out_* advanced.",
+        "On BZ_STREAM_END, bytes after the stream are not consumed: next_in points just past the byte containing the last bit of the combined CRC (verified).",
+        "Output of a block is written before its CRC is checked, so corrupt bytes may already be in next_out on BZ_DATA_ERROR."
+      ],
+      "side_effects": [
+        "bzalloc once per stream when the header is read (decompress.c:211-220).",
+        "stderr output at verbosity >= 2/3 (bzlib.c:826-829, 844-846; decompress.c:238-239, 528).",
+        "AssertH 4001 if the saved state is invalid (decompress.c:614); 4002 and 6001 unreachable (decompress.c:617, bzlib.c:855)."
+      ],
+      "thread_safety": "Not safe on the same stream concurrently; safe on distinct streams.",
+      "no_stdio": true,
+      "source": "bzlib.c:808",
+      "declared": "bzlib.h:125-127"
+    },
+    {
+      "name": "BZ2_bzDecompressEnd",
+      "signature": "int BZ2_bzDecompressEnd ( bz_stream *strm )",
+      "public": true,
+      "summary": "Free all memory of a decompression stream in any state (also after errors) and set strm->state to NULL.",
+      "parameters": [
+        {
+          "name": "strm",
+          "type": "bz_stream*",
+          "meaning": "Stream initialised by BZ2_bzDecompressInit.",
+          "valid": "non-NULL, valid state"
+        }
+      ],
+      "returns": "BZ_OK, or BZ_PARAM_ERROR.",
+      "errors": [
+        {
+          "code": "BZ_PARAM_ERROR",
+          "when": "strm == NULL, strm->state == NULL, or strm->state->strm != strm (bzlib.c:865-868)."
+        },
+        {
+          "code": "BZ_OK",
+          "when": "memory released."
+        }
+      ],
+      "preconditions": [
+        "strm initialised by BZ2_bzDecompressInit and not yet ended (otherwise BZ_PARAM_ERROR if strm->state is NULL or does not point back to strm, bzlib.c:865-868; a dangling non-NULL state is undefined behaviour).",
+        "Any decompression state is accepted, including after BZ_STREAM_END or an error."
+      ],
+      "postconditions": [
+        "tt/ll16/ll4 (if non-NULL) and the DState passed to bzfree; strm->state == NULL (bzlib.c:870-875)."
+      ],
+      "side_effects": [
+        "bzfree up to 4 times."
+      ],
+      "thread_safety": "Safe on distinct streams/handles; not safe on the same one concurrently. No global mutable state.",
+      "no_stdio": true,
+      "source": "bzlib.c:862",
+      "declared": "bzlib.h:129-131"
+    },
+    {
+      "name": "BZ2_bzReadOpen",
+      "signature": "BZFILE* BZ2_bzReadOpen ( int* bzerror, FILE* f, int verbosity, int small, void* unused, int nUnused )",
+      "public": true,
+      "summary": "Create a read handle that decompresses one bzip2 stream from f, first consuming nUnused bytes copied from unused.",
+      "parameters": [
+        {
+          "name": "bzerror",
+          "type": "int*",
+          "meaning": "Out: status code; also stored in the handle's lastErr when the handle is known (BZ_SETERR, bzlib.c:886-890).",
+          "valid": "may be NULL"
+        },
+        {
+          "name": "f",
+          "type": "FILE*",
+          "meaning": "Open for reading, ferror(f)==0, binary mode recommended. Borrowed: never closed by the library; must remain open until BZ2_bzReadClose.",
+          "valid": "non-NULL"
+        },
+        {
+          "name": "verbosity",
+          "type": "int",
+          "meaning": "As BZ2_bzDecompressInit.",
+          "valid": "0..4"
+        },
+        {
+          "name": "small",
+          "type": "int",
+          "meaning": "As BZ2_bzDecompressInit.",
+          "valid": "0 or 1"
+        },
+        {
+          "name": "unused",
+          "type": "void*",
+          "meaning": "Bytes to decompress before reading f; copied into the handle (bzlib.c:1127-1131), so the caller may reuse the buffer on return.",
+          "valid": "if NULL, nUnused must be 0; if non-NULL, nUnused in 0..5000"
+        },
+        {
+          "name": "nUnused",
+          "type": "int",
+          "meaning": "Number of bytes at unused.",
+          "valid": "0..BZ_MAX_UNUSED (5000)"
+        }
+      ],
+      "returns": "Handle on BZ_OK, NULL otherwise.",
+      "errors": [
+        {
+          "code": "BZ_PARAM_ERROR",
+          "when": "f NULL; small not 0/1; verbosity outside 0..4; unused NULL with nUnused != 0; unused non-NULL with nUnused < 0 or > 5000 (bzlib.c:1103-1108) (verified)."
+        },
+        {
+          "code": "BZ_IO_ERROR",
+          "when": "ferror(f) (bzlib.c:1110-1111)."
+        },
+        {
+          "code": "BZ_MEM_ERROR",
+          "when": "malloc of the handle failed (bzlib.c:1113-1115) or from BZ2_bzDecompressInit."
+        },
+        {
+          "code": "BZ_CONFIG_ERROR",
+          "when": "from BZ2_bzDecompressInit (bzlib.c:1133-1135)."
+        },
+        {
+          "code": "BZ_OK",
+          "when": "handle returned."
+        }
+      ],
+      "preconditions": [
+        "f non-NULL, open for reading, ferror(f) == 0, ideally in binary mode (manual.xml:1681-1687).",
+        "f must stay open and must not be read by the caller until BZ2_bzReadClose; the handle borrows it and never closes it.",
+        "unused points to at least nUnused readable bytes (or is NULL with nUnused == 0); it is only read during the call (copied, bzlib.c:1127-1131)."
+      ],
+      "postconditions": [
+        "On BZ_OK: returns a new malloc-ed handle with writing=False, lastErr=BZ_OK, embedded stream initialised with default allocators and next_in = copied unused bytes (bzlib.c:1117-1140). Nothing has been read from f.",
+        "On any error: returns NULL and nothing remains allocated (the handle is freed on the BZ2_bzDecompressInit failure path, bzlib.c:1133-1135)."
+      ],
+      "side_effects": [
+        "malloc(sizeof(bzFile)); one default bzalloc. No I/O on f."
+      ],
+      "thread_safety": "Not safe on the same handle concurrently. Uses stdio on the caller's FILE*; malloc/free for the handle.",
+      "no_stdio": false,
+      "source": "bzlib.c:1090",
+      "declared": "bzlib.h:142-149"
+    },
+    {
+      "name": "BZ2_bzReadClose",
+      "signature": "void BZ2_bzReadClose ( int* bzerror, BZFILE* b )",
+      "public": true,
+      "summary": "Free a read handle in any state (including after errors). Does not close the FILE*.",
+      "parameters": [
+        {
+          "name": "bzerror",
+          "type": "int*",
+          "meaning": "Out: status code; also stored in the handle's lastErr when the handle is known (BZ_SETERR, bzlib.c:886-890).",
+          "valid": "may be NULL"
+        },
+        {
+          "name": "b",
+          "type": "BZFILE*",
+          "meaning": "Handle from BZ2_bzReadOpen; invalid after a successful call.",
+          "valid": "read handle or NULL"
+        }
+      ],
+      "returns": "void; status in *bzerror.",
+      "errors": [
+        {
+          "code": "BZ_OK",
+          "when": "b == NULL (nothing done, bzlib.c:1151-1152) or handle freed."
+        },
+        {
+          "code": "BZ_SEQUENCE_ERROR",
+          "when": "b is a write handle; nothing freed (bzlib.c:1154-1155)."
+        }
+      ],
+      "preconditions": [
+        "b is NULL (no-op, BZ_OK) or a live handle not yet freed; passing a freed handle is undefined behaviour.",
+        "Any read-handle state is accepted, including after errors."
+      ],
+      "postconditions": [
+        "Read handle: embedded stream ended if it was initialised and the handle freed (bzlib.c:1157-1159); *bzerror = BZ_OK; b is dangling afterwards.",
+        "Write handle: BZ_SEQUENCE_ERROR, nothing freed (bzlib.c:1154-1155).",
+        "f is never closed."
+      ],
+      "side_effects": [
+        "bzfree/free."
+      ],
+      "thread_safety": "Not safe on the same handle concurrently. Uses stdio on the caller's FILE*; malloc/free for the handle.",
+      "no_stdio": false,
+      "source": "bzlib.c:1146",
+      "declared": "bzlib.h:151-154"
+    },
+    {
+      "name": "BZ2_bzReadGetUnused",
+      "signature": "void BZ2_bzReadGetUnused ( int* bzerror, BZFILE* b, void** unused, int* nUnused )",
+      "public": true,
+      "summary": "After BZ_STREAM_END, return the bytes read from the file but not consumed by the stream (start of the next stream, if any).",
+      "parameters": [
+        {
+          "name": "bzerror",
+          "type": "int*",
+          "meaning": "Out: status code; also stored in the handle's lastErr when the handle is known (BZ_SETERR, bzlib.c:886-890).",
+          "valid": "may be NULL"
+        },
+        {
+          "name": "b",
+          "type": "BZFILE*",
+          "meaning": "Read handle whose last status is BZ_STREAM_END.",
+          "valid": "non-NULL"
+        },
+        {
+          "name": "unused",
+          "type": "void**",
+          "meaning": "Out: pointer into the handle's internal buffer; valid until the next call on b, invalid after BZ2_bzReadClose.",
+          "valid": "non-NULL"
+        },
+        {
+          "name": "nUnused",
+          "type": "int*",
+          "meaning": "Out: number of bytes, 0..5000.",
+          "valid": "non-NULL"
+        }
+      ],
+      "returns": "void; status in *bzerror.",
+      "errors": [
+        {
+          "code": "BZ_PARAM_ERROR",
+          "when": "b NULL (bzlib.c:1231-1232); unused or nUnused NULL (bzlib.c:1235-1236, checked after the sequence check)."
+        },
+        {
+          "code": "BZ_SEQUENCE_ERROR",
+          "when": "b->lastErr != BZ_STREAM_END (bzlib.c:1233-1234): end not reached, write handle, or a previous successful call (which reset lastErr to BZ_OK) (verified)."
+        },
+        {
+          "code": "BZ_OK",
+          "when": "*unused = strm.next_in, *nUnused = strm.avail_in (bzlib.c:1238-1240)."
+        }
+      ],
+      "preconditions": [
+        "b is NULL (gives BZ_PARAM_ERROR) or a live handle (not yet passed to BZ2_bzReadClose / BZ2_bzWriteClose*).",
+        "Legal only once per stream, after a BZ2_bzRead that reported BZ_STREAM_END (lastErr == BZ_STREAM_END); otherwise BZ_SEQUENCE_ERROR (bzlib.c:1233-1234).",
+        "unused and nUnused non-NULL (otherwise BZ_PARAM_ERROR, checked after the sequence check, bzlib.c:1235-1236)."
+      ],
+      "postconditions": [
+        "On BZ_OK: *unused = handle's next_in (points into the handle's internal 5000-byte buffer), *nUnused = avail_in in 0..5000 (bzlib.c:1238-1240).",
+        "On BZ_OK: lastErr becomes BZ_OK, so a second call gives BZ_SEQUENCE_ERROR.",
+        "*unused stays valid only until the next call on b and is invalidated by BZ2_bzReadClose; copy it first.",
+        "On errors *unused and *nUnused are not written."
+      ],
+      "side_effects": [
+        "None besides lastErr."
+      ],
+      "thread_safety": "Not safe on the same handle concurrently. Uses stdio on the caller's FILE*; malloc/free for the handle.",
+      "no_stdio": false,
+      "source": "bzlib.c:1224",
+      "declared": "bzlib.h:156-161"
+    },
+    {
+      "name": "BZ2_bzRead",
+      "signature": "int BZ2_bzRead ( int* bzerror, BZFILE* b, void* buf, int len )",
+      "public": true,
+      "summary": "Decompress up to len bytes into buf, reading the file in chunks of up to BZ_MAX_UNUSED bytes; stops at the first end-of-stream.",
+      "parameters": [
+        {
+          "name": "bzerror",
+          "type": "int*",
+          "meaning": "Out: status code; also stored in the handle's lastErr when the handle is known (BZ_SETERR, bzlib.c:886-890).",
+          "valid": "may be NULL"
+        },
+        {
+          "name": "b",
+          "type": "BZFILE*",
+          "meaning": "Read handle.",
+          "valid": "non-NULL"
+        },
+        {
+          "name": "buf",
+          "type": "void*",
+          "meaning": "Destination of len bytes.",
+          "valid": "non-NULL"
+        },
+        {
+          "name": "len",
+          "type": "int",
+          "meaning": "Bytes wanted.",
+          "valid": ">= 0"
+        }
+      ],
+      "returns": "Number of bytes stored when *bzerror is BZ_OK (== len) or BZ_STREAM_END (0..len); 0 on every error and for len == 0.",
+      "errors": [
+        {
+          "code": "BZ_PARAM_ERROR",
+          "when": "b or buf NULL, len < 0 (bzlib.c:1175-1176)."
+        },
+        {
+          "code": "BZ_SEQUENCE_ERROR",
+          "when": "write handle (bzlib.c:1178-1179); or stream already ended (from BZ2_bzDecompress, bzlib.c:1204-1205) (verified)."
+        },
+        {
+          "code": "BZ_IO_ERROR",
+          "when": "ferror(f) before or after fread (bzlib.c:1189-1190, 1195-1196)."
+        },
+        {
+          "code": "BZ_UNEXPECTED_EOF",
+          "when": "decompressor wants more input, f at EOF, buf not full (bzlib.c:1207-1209); includes an empty file."
+        },
+        {
+          "code": "BZ_DATA_ERROR",
+          "when": "from BZ2_bzDecompress."
+        },
+        {
+          "code": "BZ_DATA_ERROR_MAGIC",
+          "when": "from BZ2_bzDecompress (bad stream header)."
+        },
+        {
+          "code": "BZ_MEM_ERROR",
+          "when": "from BZ2_bzDecompress (block arrays)."
+        },
+        {
+          "code": "BZ_STREAM_END",
+          "when": "end of stream; returns bytes stored (bzlib.c:1211-1213)."
+        },
+        {
+          "code": "BZ_OK",
+          "when": "buf filled (bzlib.c:1214-1215), or len == 0 (bzlib.c:1181-1182)."
+        }
+      ],
+      "preconditions": [
+        "b is NULL (gives BZ_PARAM_ERROR) or a live handle from BZ2_bzReadOpen that has not been passed to BZ2_bzReadClose; a write handle gives BZ_SEQUENCE_ERROR.",
+        "buf points to at least len writable bytes.",
+        "The FILE* of the handle is still open.",
+        "Manual: do not call after an error (manual.xml:1661-1679). Not enforced: lastErr is not consulted."
+      ],
+      "postconditions": [
+        "On BZ_OK with return len: buf[0..len-1] holds the next decompressed bytes.",
+        "On BZ_STREAM_END: buf[0..ret-1] holds the last bytes of the stream (ret may be 0); lastErr == BZ_STREAM_END, so BZ2_bzReadGetUnused becomes legal; further calls give BZ_SEQUENCE_ERROR (bzlib.c:1204-1205).",
+        "On other errors the return is 0 but buf may already have been written.",
+        "Over-read input bytes (up to 5000) stay in the handle for BZ2_bzReadGetUnused."
+      ],
+      "side_effects": [
+        "fread on f; fgetc/ungetc on f to test EOF (myfeof, bzlib.c:906-912); bzalloc via the stream; stderr at verbosity >= 2."
+      ],
+      "thread_safety": "Not safe on the same handle concurrently. Uses stdio on the caller's FILE*; malloc/free for the handle.",
+      "no_stdio": false,
+      "source": "bzlib.c:1164",
+      "declared": "bzlib.h:163-168"
+    },
+    {
+      "name": "BZ2_bzWriteOpen",
+      "signature": "BZFILE* BZ2_bzWriteOpen ( int* bzerror, FILE* f, int blockSize100k, int verbosity, int workFactor )",
+      "public": true,
+      "summary": "Create a write handle that compresses data written with BZ2_bzWrite into f.",
+      "parameters": [
+        {
+          "name": "bzerror",
+          "type": "int*",
+          "meaning": "Out: status code; also stored in the handle's lastErr when the handle is known (BZ_SETERR, bzlib.c:886-890).",
+          "valid": "may be NULL"
+        },
+        {
+          "name": "f",
+          "type": "FILE*",
+          "meaning": "Open for writing, ferror(f)==0. Borrowed: never closed by the library.",
+          "valid": "non-NULL"
+        },
+        {
+          "name": "blockSize100k",
+          "type": "int",
+          "meaning": "As BZ2_bzCompressInit.",
+          "valid": "1..9"
+        },
+        {
+          "name": "verbosity",
+          "type": "int",
+          "meaning": "As BZ2_bzCompressInit but range-checked here.",
+          "valid": "0..4"
+        },
+        {
+          "name": "workFactor",
+          "type": "int",
+          "meaning": "As BZ2_bzCompressInit; 0 -> 30 (bzlib.c:950).",
+          "valid": "0..250"
+        }
+      ],
+      "returns": "Handle on BZ_OK, NULL otherwise.",
+      "errors": [
+        {
+          "code": "BZ_PARAM_ERROR",
+          "when": "f NULL or blockSize100k/workFactor/verbosity out of range (bzlib.c:928-932) (verified)."
+        },
+        {
+          "code": "BZ_IO_ERROR",
+          "when": "ferror(f) (bzlib.c:934-935)."
+        },
+        {
+          "code": "BZ_MEM_ERROR",
+          "when": "malloc of handle failed (bzlib.c:937-939) or from BZ2_bzCompressInit."
+        },
+        {
+          "code": "BZ_CONFIG_ERROR",
+          "when": "from BZ2_bzCompressInit (bzlib.c:951-954)."
+        },
+        {
+          "code": "BZ_OK",
+          "when": "handle returned; all compression memory allocated."
+        }
+      ],
+      "preconditions": [
+        "f non-NULL, open for writing, ferror(f) == 0, ideally in binary mode (manual.xml:1681-1687).",
+        "f must stay open until the handle is closed with BZ2_bzWriteClose/BZ2_bzWriteClose64; the caller should not write to f in between. The handle never closes f."
+      ],
+      "postconditions": [
+        "On BZ_OK: returns a new malloc-ed handle with writing=True, lastErr=BZ_OK, embedded compression stream initialised (all compression memory allocated, bzlib.c:938-958). Nothing written to f yet.",
+        "On any error: returns NULL and nothing remains allocated (bzlib.c:951-954)."
+      ],
+      "side_effects": [
+        "malloc(sizeof(bzFile)); 4 default bzalloc calls."
+      ],
+      "thread_safety": "Not safe on the same handle concurrently. Uses stdio on the caller's FILE*; malloc/free for the handle.",
+      "no_stdio": false,
+      "source": "bzlib.c:916",
+      "declared": "bzlib.h:170-176"
+    },
+    {
+      "name": "BZ2_bzWrite",
+      "signature": "void BZ2_bzWrite ( int* bzerror, BZFILE* b, void* buf, int len )",
+      "public": true,
+      "summary": "Compress all len bytes of buf, fwrite-ing compressed output to f as it becomes available.",
+      "parameters": [
+        {
+          "name": "bzerror",
+          "type": "int*",
+          "meaning": "Out: status code; also stored in the handle's lastErr when the handle is known (BZ_SETERR, bzlib.c:886-890).",
+          "valid": "may be NULL"
+        },
+        {
+          "name": "b",
+          "type": "BZFILE*",
+          "meaning": "Write handle.",
+          "valid": "non-NULL"
+        },
+        {
+          "name": "buf",
+          "type": "void*",
+          "meaning": "Input bytes; not retained after return.",
+          "valid": "non-NULL"
+        },
+        {
+          "name": "len",
+          "type": "int",
+          "meaning": "Number of bytes.",
+          "valid": ">= 0"
+        }
+      ],
+      "returns": "void; status in *bzerror.",
+      "errors": [
+        {
+          "code": "BZ_PARAM_ERROR",
+          "when": "b or buf NULL, len < 0 (bzlib.c:974-975)."
+        },
+        {
+          "code": "BZ_SEQUENCE_ERROR",
+          "when": "read handle (bzlib.c:976-977) (verified); or from BZ2_bzCompress if the stream is no longer RUNNING (e.g. after a failed close)."
+        },
+        {
+          "code": "BZ_IO_ERROR",
+          "when": "ferror(f) on entry (bzlib.c:978-979) or short/failed fwrite (bzlib.c:996-999)."
+        },
+        {
+          "code": "other BZ2_bzCompress codes",
+          "when": "any result other than BZ_RUN_OK is passed through (bzlib.c:990-992)."
+        },
+        {
+          "code": "BZ_OK",
+          "when": "len == 0 (bzlib.c:981-982) or all input consumed (bzlib.c:1002-1003)."
+        }
+      ],
+      "preconditions": [
+        "b is NULL (gives BZ_PARAM_ERROR) or a live write handle from BZ2_bzWriteOpen, not yet freed by BZ2_bzWriteClose*; a read handle gives BZ_SEQUENCE_ERROR.",
+        "buf points to at least len readable bytes; it is only read during the call.",
+        "The handle's FILE* is still open.",
+        "Manual: do not call after an error (manual.xml:1661-1679). Not enforced: lastErr is not consulted, and lastErr is reset to BZ_OK on entry (bzlib.c:973)."
+      ],
+      "postconditions": [
+        "On BZ_OK: all len bytes have been consumed into the compressor (avail_in == 0, bzlib.c:1002-1003); compressed output produced so far has been fwrite-n to f; up to one block of input may still be buffered inside the compressor.",
+        "On BZ_OK the handle's lastErr is BZ_OK; on an error lastErr holds the code, which makes a later BZ2_bzWriteClose(abandon=0) skip the trailer.",
+        "On BZ_IO_ERROR or a BZ2_bzCompress error, an unspecified prefix of buf has been consumed and f may hold a partial stream."
+      ],
+      "side_effects": [
+        "fwrite to f in chunks of up to 5000 bytes; stderr output at verbosity >= 2; AssertH paths of BZ2_bzCompress."
+      ],
+      "thread_safety": "Not safe on the same handle concurrently. Uses stdio on the caller's FILE*; malloc/free for the handle.",
+      "no_stdio": false,
+      "source": "bzlib.c:964",
+      "declared": "bzlib.h:178-183"
+    },
+    {
+      "name": "BZ2_bzWriteClose",
+      "signature": "void BZ2_bzWriteClose ( int* bzerror, BZFILE* b, int abandon, unsigned int* nbytes_in, unsigned int* nbytes_out )",
+      "public": true,
+      "summary": "Exactly BZ2_bzWriteClose64(bzerror, b, abandon, nbytes_in, NULL, nbytes_out, NULL) (bzlib.c:1016-1017): finish (unless abandon), fflush, report low 32 bits of the counts, free the handle.",
+      "parameters": [
+        {
+          "name": "bzerror",
+          "type": "int*",
+          "meaning": "Out: status code; also stored in the handle's lastErr when the handle is known (BZ_SETERR, bzlib.c:886-890).",
+          "valid": "may be NULL"
+        },
+        {
+          "name": "b",
+          "type": "BZFILE*",
+          "meaning": "Write handle.",
+          "valid": "write handle or NULL"
+        },
+        {
+          "name": "abandon",
+          "type": "int",
+          "meaning": "Non-zero: do not finish or fflush, just free.",
+          "valid": "any int"
+        },
+        {
+          "name": "nbytes_in",
+          "type": "unsigned int*",
+          "meaning": "Out: low 32 bits of uncompressed bytes consumed.",
+          "valid": "may be NULL"
+        },
+        {
+          "name": "nbytes_out",
+          "type": "unsigned int*",
+          "meaning": "Out: low 32 bits of compressed bytes produced.",
+          "valid": "may be NULL"
+        }
+      ],
+      "returns": "void; status in *bzerror (see BZ2_bzWriteClose64).",
+      "errors": [
+        {
+          "code": "(as BZ2_bzWriteClose64)",
+          "when": "identical behaviour."
+        }
+      ],
+      "preconditions": [
+        "Same as BZ2_bzWriteClose64: b is NULL or a live handle not yet freed."
+      ],
+      "postconditions": [
+        "Same as BZ2_bzWriteClose64 with nbytes_in_hi32 = nbytes_out_hi32 = NULL: *nbytes_in / *nbytes_out (if non-NULL) receive the low 32 bits of the counts."
+      ],
+      "side_effects": [
+        "as BZ2_bzWriteClose64."
+      ],
+      "thread_safety": "Not safe on the same handle concurrently. Uses stdio on the caller's FILE*; malloc/free for the handle.",
+      "no_stdio": false,
+      "source": "bzlib.c:1009",
+      "declared": "bzlib.h:185-191"
+    },
+    {
+      "name": "BZ2_bzWriteClose64",
+      "signature": "void BZ2_bzWriteClose64 ( int* bzerror, BZFILE* b, int abandon, unsigned int* nbytes_in_lo32, unsigned int* nbytes_in_hi32, unsigned int* nbytes_out_lo32, unsigned int* nbytes_out_hi32 )",
+      "public": true,
+      "summary": "Unless abandoning: fail with BZ_IO_ERROR if ferror(f) is set, write the trailer if no previous error was recorded (lastErr == BZ_OK), and fflush f. Then report 64-bit byte counts and free the handle. Does not fclose f.",
+      "parameters": [
+        {
+          "name": "bzerror",
+          "type": "int*",
+          "meaning": "Out: status code; also stored in the handle's lastErr when the handle is known (BZ_SETERR, bzlib.c:886-890).",
+          "valid": "may be NULL"
+        },
+        {
+          "name": "b",
+          "type": "BZFILE*",
+          "meaning": "Write handle.",
+          "valid": "write handle or NULL"
+        },
+        {
+          "name": "abandon",
+          "type": "int",
+          "meaning": "Non-zero: skip finishing and fflush; always frees.",
+          "valid": "any int"
+        },
+        {
+          "name": "nbytes_in_lo32",
+          "type": "unsigned int*",
+          "meaning": "Out: total_in_lo32.",
+          "valid": "may be NULL"
+        },
+        {
+          "name": "nbytes_in_hi32",
+          "type": "unsigned int*",
+          "meaning": "Out: total_in_hi32.",
+          "valid": "may be NULL"
+        },
+        {
+          "name": "nbytes_out_lo32",
+          "type": "unsigned int*",
+          "meaning": "Out: total_out_lo32.",
+          "valid": "may be NULL"
+        },
+        {
+          "name": "nbytes_out_hi32",
+          "type": "unsigned int*",
+          "meaning": "Out: total_out_hi32.",
+          "valid": "may be NULL"
+        }
+      ],
+      "returns": "void; status in *bzerror.",
+      "errors": [
+        {
+          "code": "BZ_OK",
+          "when": "b == NULL: nothing done (bzlib.c:1033-1034)."
+        },
+        {
+          "code": "BZ_SEQUENCE_ERROR",
+          "when": "read handle; not freed (bzlib.c:1035-1036)."
+        },
+        {
+          "code": "BZ_IO_ERROR",
+          "when": "!abandon && ferror(f) on entry (bzlib.c:1040-1041; the usual state after BZ_IO_ERROR from BZ2_bzWrite, so no flush and no trailer happen), short fwrite while finishing (bzlib.c:1060-1061), or fflush error (bzlib.c:1068-1071); handle NOT freed."
+        },
+        {
+          "code": "any BZ2_bzCompress code except BZ_FINISH_OK/BZ_STREAM_END",
+          "when": "while finishing (bzlib.c:1053-1054); handle NOT freed."
+        },
+        {
+          "code": "BZ_OK",
+          "when": "handle freed (bzlib.c:1083-1085): always with abandon != 0; with abandon == 0 only if ferror(f) was clear on entry, finishing (when lastErr == BZ_OK) succeeded and fflush succeeded. After an earlier non-I/O error (lastErr != BZ_OK, ferror clear) BZ_OK is reported although no trailer was written."
+        }
+      ],
+      "preconditions": [
+        "b is NULL (no-op, BZ_OK) or a handle from BZ2_bzWriteOpen that has not been freed; a read handle gives BZ_SEQUENCE_ERROR.",
+        "The handle's FILE* is still open."
+      ],
+      "postconditions": [
+        "Count pointers that are non-NULL are set to 0 first (bzlib.c:1043-1046), then to the stream totals on the freeing path (bzlib.c:1074-1081); on the early returns at bzlib.c:1033-1041 they are not written.",
+        "If !abandon, ferror(f) clear on entry and lastErr == BZ_OK: end-of-stream marker and combined CRC written (bzlib.c:1048-1066), f fflush-ed, handle freed, BZ_OK.",
+        "If !abandon and ferror(f) set on entry (the usual state after BZ_IO_ERROR from BZ2_bzWrite, bzlib.c:978-979, 996-999): BZ_IO_ERROR at bzlib.c:1040-1041; no trailer, no fflush, handle NOT freed.",
+        "If !abandon, ferror(f) clear and lastErr != BZ_OK (e.g. after BZ_PARAM_ERROR or BZ_SEQUENCE_ERROR from BZ2_bzWrite): no trailer is written (f holds an incomplete stream); f is fflush-ed; if fflush succeeds the handle is freed and BZ_OK reported, otherwise BZ_IO_ERROR and the handle stays allocated (bzlib.c:1068-1072).",
+        "If abandon != 0 (and b is a write handle): no trailer, no fflush, handle always freed, BZ_OK.",
+        "Whenever the handle was not freed, a further call with abandon=1 is needed to release it (as BZ2_bzclose does, bzlib.c:1525-1528).",
+        "f is never closed."
+      ],
+      "side_effects": [
+        "fwrite and fflush on f; bzfree/free; stderr at verbosity >= 2 while finishing."
+      ],
+      "thread_safety": "Not safe on the same handle concurrently. Uses stdio on the caller's FILE*; malloc/free for the handle.",
+      "no_stdio": false,
+      "source": "bzlib.c:1021",
+      "declared": "bzlib.h:193-201"
+    },
+    {
+      "name": "BZ2_bzBuffToBuffCompress",
+      "signature": "int BZ2_bzBuffToBuffCompress ( char* dest, unsigned int* destLen, char* source, unsigned int sourceLen, int blockSize100k, int verbosity, int workFactor )",
+      "public": true,
+      "summary": "Compress source[0..sourceLen-1] into one complete stream in dest[0..*destLen-1] in a single call.",
+      "parameters": [
+        {
+          "name": "dest",
+          "type": "char*",
+          "meaning": "Output buffer; never written at or beyond dest[*destLen].",
+          "valid": "non-NULL"
+        },
+        {
+          "name": "destLen",
+          "type": "unsigned int*",
+          "meaning": "In: capacity. Out (BZ_OK only): compressed size (bzlib.c:1287).",
+          "valid": "non-NULL"
+        },
+        {
+          "name": "source",
+          "type": "char*",
+          "meaning": "Input.",
+          "valid": "non-NULL even when sourceLen == 0"
+        },
+        {
+          "name": "sourceLen",
+          "type": "unsigned int",
+          "meaning": "Input length.",
+          "valid": "any"
+        },
+        {
+          "name": "blockSize100k",
+          "type": "int",
+          "meaning": "As BZ2_bzCompressInit.",
+          "valid": "1..9"
+        },
+        {
+          "name": "verbosity",
+          "type": "int",
+          "meaning": "Checked here.",
+          "valid": "0..4"
+        },
+        {
+          "name": "workFactor",
+          "type": "int",
+          "meaning": "0 -> 30.",
+          "valid": "0..250"
+        }
+      ],
+      "returns": "BZ_OK or an error code.",
+      "errors": [
+        {
+          "code": "BZ_PARAM_ERROR",
+          "when": "NULL pointer or range violation (bzlib.c:1262-1267)."
+        },
+        {
+          "code": "BZ_CONFIG_ERROR",
+          "when": "from BZ2_bzCompressInit."
+        },
+        {
+          "code": "BZ_MEM_ERROR",
+          "when": "from BZ2_bzCompressInit."
+        },
+        {
+          "code": "BZ_OUTBUFF_FULL",
+          "when": "BZ2_bzCompress(BZ_FINISH) returned BZ_FINISH_OK: output did not fit; *destLen unchanged (bzlib.c:1283, 1291-1293) (verified)."
+        },
+        {
+          "code": "BZ_SEQUENCE_ERROR",
+          "when": "no progress in the FINISH call: sourceLen == 0 and *destLen == 0 (bzlib.c:1284, 457) (verified)."
+        },
+        {
+          "code": "BZ_OK",
+          "when": "complete stream in dest."
+        }
+      ],
+      "preconditions": [
+        "dest points to at least *destLen writable bytes; source to at least sourceLen readable bytes; the two must not overlap (not checked; uncertain what happens if they do).",
+        "dest, destLen and source non-NULL; blockSize100k 1..9, verbosity 0..4, workFactor 0..250 (else BZ_PARAM_ERROR, bzlib.c:1262-1267)."
+      ],
+      "postconditions": [
+        "On BZ_OK: dest[0..*destLen-1] holds one complete .bz2 stream for source[0..sourceLen-1] and *destLen is its length (bzlib.c:1287).",
+        "On every other return *destLen is unchanged; dest[0..old *destLen-1] may hold partial output (BZ_OUTBUFF_FULL).",
+        "No memory remains allocated on any return (BZ2_bzCompressEnd on every path after Init, bzlib.c:1288-1297)."
+      ],
+      "side_effects": [
+        "Stack bz_stream with default allocators (malloc/free), freed on every path after Init; stderr at verbosity >= 2."
+      ],
+      "thread_safety": "Safe on distinct streams/handles; not safe on the same one concurrently. No global mutable state.",
+      "no_stdio": true,
+      "source": "bzlib.c:1250",
+      "declared": "bzlib.h:207-215"
+    },
+    {
+      "name": "BZ2_bzBuffToBuffDecompress",
+      "signature": "int BZ2_bzBuffToBuffDecompress ( char* dest, unsigned int* destLen, char* source, unsigned int sourceLen, int small, int verbosity )",
+      "public": true,
+      "summary": "Decompress the first bzip2 stream in source[0..sourceLen-1] into dest[0..*destLen-1] with one BZ2_bzDecompress call; trailing bytes are ignored.",
+      "parameters": [
+        {
+          "name": "dest",
+          "type": "char*",
+          "meaning": "Output buffer; never written at or beyond dest[*destLen]; may hold partial data on error.",
+          "valid": "non-NULL"
+        },
+        {
+          "name": "destLen",
+          "type": "unsigned int*",
+          "meaning": "In: capacity. Out (BZ_OK only): decompressed size (bzlib.c:1335).",
+          "valid": "non-NULL"
+        },
+        {
+          "name": "source",
+          "type": "char*",
+          "meaning": "Compressed input.",
+          "valid": "non-NULL"
+        },
+        {
+          "name": "sourceLen",
+          "type": "unsigned int",
+          "meaning": "Input length.",
+          "valid": "any"
+        },
+        {
+          "name": "small",
+          "type": "int",
+          "meaning": "As BZ2_bzDecompressInit.",
+          "valid": "0 or 1"
+        },
+        {
+          "name": "verbosity",
+          "type": "int",
+          "meaning": "As BZ2_bzDecompressInit.",
+          "valid": "0..4"
+        }
+      ],
+      "returns": "BZ_OK or an error code.",
+      "errors": [
+        {
+          "code": "BZ_PARAM_ERROR",
+          "when": "NULL pointer or range violation (bzlib.c:1313-1317)."
+        },
+        {
+          "code": "BZ_CONFIG_ERROR",
+          "when": "from BZ2_bzDecompressInit."
+        },
+        {
+          "code": "BZ_MEM_ERROR",
+          "when": "from BZ2_bzDecompressInit or block allocation."
+        },
+        {
+          "code": "BZ_DATA_ERROR",
+          "when": "from BZ2_bzDecompress (verified)."
+        },
+        {
+          "code": "BZ_DATA_ERROR_MAGIC",
+          "when": "from BZ2_bzDecompress (verified)."
+        },
+        {
+          "code": "BZ_UNEXPECTED_EOF",
+          "when": "BZ2_bzDecompress returned BZ_OK with output space left (bzlib.c:1340-1342) (verified)."
+        },
+        {
+          "code": "BZ_OUTBUFF_FULL",
+          "when": "BZ2_bzDecompress returned BZ_OK with avail_out == 0 (bzlib.c:1343-1345) (verified); also for truncated input that exactly fills dest."
+        },
+        {
+          "code": "BZ_OK",
+          "when": "first stream decoded; bytes after it ignored (verified)."
+        }
+      ],
+      "preconditions": [
+        "dest points to at least *destLen writable bytes; source to at least sourceLen readable bytes; no overlap (not checked).",
+        "dest, destLen and source non-NULL; small 0 or 1; verbosity 0..4 (else BZ_PARAM_ERROR, bzlib.c:1313-1317)."
+      ],
+      "postconditions": [
+        "On BZ_OK: dest[0..*destLen-1] holds the decompressed first stream of source and *destLen is its length (bzlib.c:1335); bytes after that stream are ignored.",
+        "On every other return *destLen is unchanged; dest may hold partial (possibly corrupt) output.",
+        "No memory remains allocated on any return (BZ2_bzDecompressEnd on every path after Init, bzlib.c:1336-1350)."
+      ],
+      "side_effects": [
+        "Stack bz_stream with default allocators, freed on every path after Init; stderr at verbosity >= 2."
+      ],
+      "thread_safety": "Safe on distinct streams/handles; not safe on the same one concurrently. No global mutable state.",
+      "no_stdio": true,
+      "source": "bzlib.c:1302",
+      "declared": "bzlib.h:217-224"
+    },
+    {
+      "name": "BZ2_bzlibVersion",
+      "signature": "const char * BZ2_bzlibVersion ( void )",
+      "public": true,
+      "summary": "Return the static version string BZ_VERSION = \"1.0.8, 13-Jul-2019\" (bzlib_private.h:39).",
+      "parameters": [],
+      "returns": "Pointer to a static, read-only string; never NULL; must not be freed (verified).",
+      "errors": [],
+      "preconditions": [
+        "none"
+      ],
+      "postconditions": [
+        "Returns a pointer to the static string BZ_VERSION \"1.0.8, 13-Jul-2019\" (bzlib_private.h:39); the caller must not modify or free it."
+      ],
+      "side_effects": [
+        "None."
+      ],
+      "thread_safety": "Pure; thread-safe.",
+      "no_stdio": true,
+      "source": "bzlib.c:1369",
+      "declared": "bzlib.h:236-238"
+    },
+    {
+      "name": "BZ2_bzopen",
+      "signature": "BZFILE * BZ2_bzopen ( const char *path, const char *mode )",
+      "public": true,
+      "summary": "fopen-like: open path (or stdin/stdout) for compressed reading or writing; returns a BZFILE handle owning the FILE*.",
+      "parameters": [
+        {
+          "name": "path",
+          "type": "const char*",
+          "meaning": "File name for fopen(path, \"rb\"/\"wb\"); NULL or \"\" means stdin (read) or stdout (write) (bzlib.c:1424-1426).",
+          "valid": "any; NULL allowed"
+        },
+        {
+          "name": "mode",
+          "type": "const char*",
+          "meaning": "Scanned per character (bzlib.c:1405-1419): 'r' read, 'w' write (last wins, default read); 's' small decompression; a digit sets blockSize100k (last wins, default 9, clamped to 1..9 when writing so '0' gives 1; ignored when reading); other characters ignored.",
+          "valid": "non-NULL (NULL -> returns NULL)"
+        }
+      ],
+      "returns": "Handle, or NULL if mode is NULL, fopen fails, or BZ2_bzReadOpen/BZ2_bzWriteOpen fails (then the FILE* is fclose-d unless stdin/stdout, bzlib.c:1449-1452). No error code is reported.",
+      "errors": [],
+      "preconditions": [
+        "path is NULL/\"\" (stdin/stdout) or a NUL-terminated file name; mode is a NUL-terminated string (NULL gives a NULL return, bzlib.c:1404)."
+      ],
+      "postconditions": [
+        "On success: returns a handle owning a FILE* opened with \"rb\"/\"wb\" (bzlib.c:1420-1421); it is fclose-d by BZ2_bzclose unless it is stdin/stdout.",
+        "Fixed parameters: verbosity 0, workFactor 30, no unused bytes (bzlib.c:1394-1402).",
+        "On failure: returns NULL with no error code; a FILE* opened by the call is closed again unless stdin/stdout (bzlib.c:1449-1452)."
+      ],
+      "side_effects": [
+        "fopen; malloc."
+      ],
+      "thread_safety": "Not reviewed for thread safety by the authors (bzlib.h:227-234); not safe on the same handle concurrently.",
+      "no_stdio": false,
+      "source": "bzlib.c:1463",
+      "declared": "bzlib.h:241-244"
+    },
+    {
+      "name": "BZ2_bzdopen",
+      "signature": "BZFILE * BZ2_bzdopen ( int fd, const char *mode )",
+      "public": true,
+      "summary": "As BZ2_bzopen but wraps an existing file descriptor with fdopen(fd, \"rb\"/\"wb\") (bzlib.c:1434).",
+      "parameters": [
+        {
+          "name": "fd",
+          "type": "int",
+          "meaning": "Open file descriptor. Ownership passes to the handle: BZ2_bzclose fcloses it; it is also closed if fdopen succeeded but the handle could not be created.",
+          "valid": "valid fd"
+        },
+        {
+          "name": "mode",
+          "type": "const char*",
+          "meaning": "As BZ2_bzopen.",
+          "valid": "non-NULL"
+        }
+      ],
+      "returns": "Handle or NULL. Always NULL when compiled with BZ_STRICT_ANSI (bzlib.c:1431-1432).",
+      "errors": [],
+      "preconditions": [
+        "fd is an open file descriptor usable with fdopen in the requested direction; mode is a NUL-terminated string (NULL gives a NULL return).",
+        "On success ownership of fd passes to the handle: BZ2_bzclose closes it (bzlib.c:1532-1534); the caller must not close fd itself."
+      ],
+      "postconditions": [
+        "As BZ2_bzopen, with the FILE* from fdopen(fd, \"rb\"/\"wb\") (bzlib.c:1434).",
+        "On failure after fdopen succeeded, the FILE* is fclose-d, which also closes fd (bzlib.c:1450). If fdopen itself failed, fd is left open.",
+        "With BZ_STRICT_ANSI defined: always returns NULL (bzlib.c:1431-1432)."
+      ],
+      "side_effects": [
+        "fdopen; malloc."
+      ],
+      "thread_safety": "Not reviewed for thread safety by the authors (bzlib.h:227-234); not safe on the same handle concurrently.",
+      "no_stdio": false,
+      "source": "bzlib.c:1472",
+      "declared": "bzlib.h:246-249"
+    },
+    {
+      "name": "BZ2_bzread",
+      "signature": "int BZ2_bzread ( BZFILE* b, void* buf, int len )",
+      "public": true,
+      "summary": "fread-like: 0 if the handle already reached BZ_STREAM_END, else BZ2_bzRead's byte count on BZ_OK/BZ_STREAM_END, else -1.",
+      "parameters": [
+        {
+          "name": "b",
+          "type": "BZFILE*",
+          "meaning": "Read handle; dereferenced unchecked (bzlib.c:1484).",
+          "valid": "non-NULL"
+        },
+        {
+          "name": "buf",
+          "type": "void*",
+          "meaning": "Destination.",
+          "valid": "non-NULL"
+        },
+        {
+          "name": "len",
+          "type": "int",
+          "meaning": "Bytes wanted.",
+          "valid": ">= 0"
+        }
+      ],
+      "returns": "Bytes read (0 at end of the first stream), or -1 on error.",
+      "errors": [
+        {
+          "code": "-1",
+          "when": "BZ2_bzRead status other than BZ_OK/BZ_STREAM_END (bzlib.c:1486-1490), including write handles."
+        }
+      ],
+      "preconditions": [
+        "b non-NULL: it is dereferenced unchecked at bzlib.c:1484 (NULL crashes).",
+        "b is a live handle; a write handle yields -1. buf points to at least len writable bytes."
+      ],
+      "postconditions": [
+        "Returns the number of bytes stored in buf (0..len) when BZ2_bzRead reports BZ_OK or BZ_STREAM_END, else -1 (bzlib.c:1485-1490).",
+        "Returns 0 without reading once lastErr == BZ_STREAM_END (bzlib.c:1484).",
+        "Only the first stream of the file is read."
+      ],
+      "side_effects": [
+        "as BZ2_bzRead."
+      ],
+      "thread_safety": "Not reviewed for thread safety by the authors (bzlib.h:227-234); not safe on the same handle concurrently.",
+      "no_stdio": false,
+      "source": "bzlib.c:1481",
+      "declared": "bzlib.h:251-255"
+    },
+    {
+      "name": "BZ2_bzwrite",
+      "signature": "int BZ2_bzwrite ( BZFILE* b, void* buf, int len )",
+      "public": true,
+      "summary": "fwrite-like: BZ2_bzWrite, returning len on BZ_OK and -1 otherwise.",
+      "parameters": [
+        {
+          "name": "b",
+          "type": "BZFILE*",
+          "meaning": "Write handle.",
+          "valid": "non-NULL (NULL gives -1)"
+        },
+        {
+          "name": "buf",
+          "type": "void*",
+          "meaning": "Input.",
+          "valid": "non-NULL"
+        },
+        {
+          "name": "len",
+          "type": "int",
+          "meaning": "Bytes.",
+          "valid": ">= 0"
+        }
+      ],
+      "returns": "len on success (0 for len == 0), -1 on any error (bzlib.c:1499-1504).",
+      "errors": [
+        {
+          "code": "-1",
+          "when": "BZ2_bzWrite status != BZ_OK."
+        }
+      ],
+      "preconditions": [
+        "b is a live write handle (NULL or a read handle yields -1); buf points to at least len readable bytes."
+      ],
+      "postconditions": [
+        "Returns len if BZ2_bzWrite reported BZ_OK (all bytes consumed), else -1 (bzlib.c:1499-1504)."
+      ],
+      "side_effects": [
+        "as BZ2_bzWrite."
+      ],
+      "thread_safety": "Not reviewed for thread safety by the authors (bzlib.h:227-234); not safe on the same handle concurrently.",
+      "no_stdio": false,
+      "source": "bzlib.c:1495",
+      "declared": "bzlib.h:257-261"
+    },
+    {
+      "name": "BZ2_bzflush",
+      "signature": "int BZ2_bzflush ( BZFILE* b )",
+      "public": true,
+      "summary": "No-op: returns 0 without flushing the compressor or the FILE* (bzlib.c:1511-1512).",
+      "parameters": [
+        {
+          "name": "b",
+          "type": "BZFILE*",
+          "meaning": "Ignored.",
+          "valid": "any"
+        }
+      ],
+      "returns": "Always 0.",
+      "errors": [],
+      "preconditions": [
+        "none"
+      ],
+      "postconditions": [
+        "Returns 0; no state changes (bzlib.c:1511-1512)."
+      ],
+      "side_effects": [
+        "None."
+      ],
+      "thread_safety": "Thread-safe (does nothing).",
+      "no_stdio": false,
+      "source": "bzlib.c:1509",
+      "declared": "bzlib.h:263-265"
+    },
+    {
+      "name": "BZ2_bzclose",
+      "signature": "void BZ2_bzclose ( BZFILE* b )",
+      "public": true,
+      "summary": "fclose-like: finish/free the handle and fclose its FILE* unless it is stdin/stdout; errors are discarded.",
+      "parameters": [
+        {
+          "name": "b",
+          "type": "BZFILE*",
+          "meaning": "Handle from any open function; invalid afterwards.",
+          "valid": "handle or NULL (NULL: no-op)"
+        }
+      ],
+      "returns": "void.",
+      "errors": [],
+      "preconditions": [
+        "b is NULL (no-op) or a live handle from BZ2_bzopen/BZ2_bzdopen (b->handle is dereferenced, bzlib.c:1523)."
+      ],
+      "postconditions": [
+        "Write handle: BZ2_bzWriteClose(&e, b, 0, NULL, NULL); if that did not report BZ_OK, BZ2_bzWriteClose(NULL, b, 1, NULL, NULL), which always frees (bzlib.c:1524-1528).",
+        "Read handle: BZ2_bzReadClose (bzlib.c:1530), which frees it.",
+        "The handle is freed in both cases; b is dangling afterwards.",
+        "FILE* fclose-d unless stdin/stdout (bzlib.c:1532-1534); fclose result and all error codes are discarded."
+      ],
+      "side_effects": [
+        "fwrite/fflush/fclose; free."
+      ],
+      "thread_safety": "Not reviewed for thread safety by the authors (bzlib.h:227-234); not safe on the same handle concurrently.",
+      "no_stdio": false,
+      "source": "bzlib.c:1517",
+      "declared": "bzlib.h:267-269"
+    },
+    {
+      "name": "BZ2_bzerror",
+      "signature": "const char * BZ2_bzerror ( BZFILE *b, int *errnum )",
+      "public": true,
+      "summary": "Return a static string for the handle's last status and store the code (positive codes mapped to 0) in *errnum.",
+      "parameters": [
+        {
+          "name": "b",
+          "type": "BZFILE*",
+          "meaning": "Open handle; dereferenced unchecked.",
+          "valid": "non-NULL"
+        },
+        {
+          "name": "errnum",
+          "type": "int*",
+          "meaning": "Out: lastErr, or 0 if lastErr > 0; dereferenced unchecked.",
+          "valid": "non-NULL"
+        }
+      ],
+      "returns": "One of \"OK\", \"SEQUENCE_ERROR\", \"PARAM_ERROR\", \"MEM_ERROR\", \"DATA_ERROR\", \"DATA_ERROR_MAGIC\", \"IO_ERROR\", \"UNEXPECTED_EOF\", \"OUTBUFF_FULL\", \"CONFIG_ERROR\" (bzlib.c:1542-1559); after BZ_STREAM_END it returns \"OK\" and 0 (verified).",
+      "errors": [],
+      "preconditions": [
+        "b non-NULL and a live handle not yet closed (b->lastErr is read unchecked, bzlib.c:1564).",
+        "errnum non-NULL (written unchecked, bzlib.c:1567)."
+      ],
+      "postconditions": [
+        "*errnum = lastErr if it is <= 0, else 0 (bzlib.c:1566-1567).",
+        "Returns the static string bzerrorstrings[-*errnum] (bzlib.c:1542-1559, 1568); the caller must not modify or free it.",
+        "The handle is not modified."
+      ],
+      "side_effects": [
+        "None."
+      ],
+      "thread_safety": "Not reviewed for thread safety by the authors (bzlib.h:227-234); not safe on the same handle concurrently.",
+      "no_stdio": false,
+      "source": "bzlib.c:1562",
+      "declared": "bzlib.h:271-274"
+    },
+    {
+      "name": "BZ2_blockSort",
+      "signature": "void BZ2_blockSort ( EState* s )",
+      "public": false,
+      "summary": "Burrows-Wheeler sort of the current compression block; sets s->origPtr. Not part of the public API: declared only in the private bzlib_private.h, takes private structures, not in libbz2.def.",
+      "parameters": [
+        {
+          "name": "s",
+          "type": "EState*",
+          "meaning": "Compressor state with s->nblock > 0 block bytes in arr2 and work arrays sized as by BZ2_bzCompressInit (blocksort.c:1019-1030).",
+          "valid": "valid EState, nblock > 0"
+        }
+      ],
+      "returns": "void.",
+      "errors": [],
+      "preconditions": [
+        "s is a live EState set up by BZ2_bzCompressInit (s->ptr = arr1, s->block = (UChar*)arr2, s->ftab sized 65537 words, bzlib.c:177-179, 198, 201).",
+        "s->nblock > 0 and ((UChar*)s->arr2)[0..nblock-1] holds the block; arr2 has room for nblock + BZ_N_OVERSHOOT words (blocksort.c:1019-1030).",
+        "s->workFactor and s->verbosity set (read at blocksort.c:1037-1038; workFactor clamped to 1..100 at 1063-1064)."
+      ],
+      "postconditions": [
+        "arr1[0..nblock-1] holds sorted order; s->origPtr = index of rotation 0; ftab and arr2 beyond the block clobbered (blocksort.c:1025-1030, 1083-1088)."
+      ],
+      "side_effects": [
+        "fallbackSort if nblock < 10000 or main sort exceeds budget nblock*((clamp(workFactor,1,100)-1)/3) (blocksort.c:1044-1080).",
+        "stderr at verbosity >= 2/3/4.",
+        "AssertH 1001-1007."
+      ],
+      "thread_safety": "Operates only on its arguments; same rules as the owning stream.",
+      "no_stdio": true,
+      "source": "blocksort.c:1031",
+      "declared": "bzlib_private.h:272-273"
+    },
+    {
+      "name": "BZ2_compressBlock",
+      "signature": "void BZ2_compressBlock ( EState* s, Bool is_last_block )",
+      "public": false,
+      "summary": "Encode the current block (stream header first if blockNo == 1; end-of-stream marker, combined CRC and byte padding if is_last_block) into s->zbits/s->numZ. Not part of the public API: declared only in the private bzlib_private.h, takes private structures, not in libbz2.def.",
+      "parameters": [
+        {
+          "name": "s",
+          "type": "EState*",
+          "meaning": "Compressor state.",
+          "valid": "valid EState"
+        },
+        {
+          "name": "is_last_block",
+          "type": "Bool (unsigned char)",
+          "meaning": "Non-zero to append the stream trailer.",
+          "valid": "0 or 1"
+        }
+      ],
+      "returns": "void.",
+      "errors": [],
+      "preconditions": [
+        "s is a live EState set up by BZ2_bzCompressInit and driven by bzlib.c: block bytes in s->block[0..nblock-1] with s->inUse and s->blockCRC maintained by the input routines, s->blockNo the 1-based number of this block (prepare_new_block, bzlib.c:117-126).",
+        "Output of the previous block has been fully copied out (state_out_pos == numZ): s->zbits is re-pointed and numZ reset for blocks after the first (compress.c:609, 619).",
+        "is_last_block is True exactly for the final call of the stream (also with nblock == 0, which writes only header-if-first and trailer)."
+      ],
+      "postconditions": [
+        "If nblock > 0: blockCRC finalised and folded into combinedCRC (compress.c:606-608); s->ptr[0..nblock-1] and s->origPtr set by BZ2_blockSort; block header, CRC, randomised bit 0, origPtr, mapping table, selectors, code tables and coded data appended to s->zbits[0..numZ-1] (compress.c:630-653).",
+        "If blockNo == 1: bit buffer reset and stream header 'BZh' + ('0'+blockSize100k) emitted first (compress.c:622-628).",
+        "If is_last_block: end-of-stream magic and combinedCRC appended and the bit buffer flushed to a byte boundary (compress.c:657-666); otherwise up to 31 bits may remain in bsBuff.",
+        "The block contents in arr2 beyond nblock and ftab are clobbered; arr1 reused for the MTF values."
+      ],
+      "side_effects": [
+        "Calls BZ2_blockSort, BZ2_hbMakeCodeLengths, BZ2_hbAssignCodes.",
+        "stderr at verbosity >= 2/3.",
+        "AssertH 3001-3007 (and those of callees)."
+      ],
+      "thread_safety": "Operates only on its arguments; same rules as the owning stream.",
+      "no_stdio": true,
+      "source": "compress.c:602",
+      "declared": "bzlib_private.h:275-276"
+    },
+    {
+      "name": "BZ2_bsInitWrite",
+      "signature": "void BZ2_bsInitWrite ( EState* s )",
+      "public": false,
+      "summary": "Reset the compressor's bit buffer: s->bsLive = 0, s->bsBuff = 0 (compress.c:39-40). Not part of the public API: declared only in the private bzlib_private.h, takes private structures, not in libbz2.def.",
+      "parameters": [
+        {
+          "name": "s",
+          "type": "EState*",
+          "meaning": "Compressor state.",
+          "valid": "non-NULL"
+        }
+      ],
+      "returns": "void.",
+      "errors": [],
+      "preconditions": [
+        "s non-NULL, points to a writable EState."
+      ],
+      "postconditions": [
+        "s->bsLive == 0 and s->bsBuff == 0 (compress.c:39-40); nothing else changed."
+      ],
+      "side_effects": [],
+      "thread_safety": "Operates only on its arguments; same rules as the owning stream.",
+      "no_stdio": true,
+      "source": "compress.c:37",
+      "declared": "bzlib_private.h:278-279"
+    },
+    {
+      "name": "BZ2_hbMakeCodeLengths",
+      "signature": "void BZ2_hbMakeCodeLengths ( UChar *len, Int32 *freq, Int32 alphaSize, Int32 maxLen )",
+      "public": false,
+      "summary": "Compute Huffman code lengths limited to maxLen by repeatedly halving weights (huffman.c:79-147). Not part of the public API: declared only in the private bzlib_private.h, takes private structures, not in libbz2.def.",
+      "parameters": [
+        {
+          "name": "len",
+          "type": "UChar*",
+          "meaning": "Out: alphaSize lengths.",
+          "valid": "alphaSize entries"
+        },
+        {
+          "name": "freq",
+          "type": "Int32*",
+          "meaning": "Symbol frequencies (0 treated as 1); read only.",
+          "valid": "alphaSize entries"
+        },
+        {
+          "name": "alphaSize",
+          "type": "Int32",
+          "meaning": "Alphabet size.",
+          "valid": "1..258 (BZ_MAX_ALPHA_SIZE)"
+        },
+        {
+          "name": "maxLen",
+          "type": "Int32",
+          "meaning": "Maximum code length; library passes 17 (compress.c:450-451). Must be large enough for alphaSize or the loop does not terminate (uncertain exact bound; unchecked).",
+          "valid": ">= ceil(log2(alphaSize)) at least"
+        }
+      ],
+      "returns": "void.",
+      "errors": [],
+      "preconditions": [
+        "1 <= alphaSize <= BZ_MAX_ALPHA_SIZE (258): internal arrays are sized BZ_MAX_ALPHA_SIZE + 2 (huffman.c:75-77).",
+        "len has room for alphaSize entries; freq has alphaSize readable entries (read only).",
+        "maxLen large enough that a length-limited code for alphaSize symbols exists; not checked (exact bound uncertain). The library uses maxLen = 17 (compress.c:450-451)."
+      ],
+      "postconditions": [
+        "len[0..alphaSize-1] holds Huffman code lengths, each <= maxLen; zero frequencies are treated as 1, so every symbol gets a non-zero length (huffman.c:79-147).",
+        "freq is unchanged."
+      ],
+      "side_effects": [
+        "AssertH 2001, 2002."
+      ],
+      "thread_safety": "Operates only on its arguments; same rules as the owning stream.",
+      "no_stdio": true,
+      "source": "huffman.c:63",
+      "declared": "bzlib_private.h:284-285"
+    },
+    {
+      "name": "BZ2_hbAssignCodes",
+      "signature": "void BZ2_hbAssignCodes ( Int32 *code, UChar *length, Int32 minLen, Int32 maxLen, Int32 alphaSize )",
+      "public": false,
+      "summary": "Assign canonical Huffman codes: by increasing length then symbol index, consecutive values, shifted left between lengths (huffman.c:160-165). Not part of the public API: declared only in the private bzlib_private.h, takes private structures, not in libbz2.def.",
+      "parameters": [
+        {
+          "name": "code",
+          "type": "Int32*",
+          "meaning": "Out: codes.",
+          "valid": "alphaSize entries"
+        },
+        {
+          "name": "length",
+          "type": "UChar*",
+          "meaning": "Code lengths.",
+          "valid": "alphaSize entries, each in minLen..maxLen"
+        },
+        {
+          "name": "minLen",
+          "type": "Int32",
+          "meaning": "Smallest length.",
+          "valid": ""
+        },
+        {
+          "name": "maxLen",
+          "type": "Int32",
+          "meaning": "Largest length.",
+          "valid": ""
+        },
+        {
+          "name": "alphaSize",
+          "type": "Int32",
+          "meaning": "Alphabet size.",
+          "valid": "<= 258"
+        }
+      ],
+      "returns": "void.",
+      "errors": [],
+      "preconditions": [
+        "code has room for alphaSize entries; length has alphaSize readable entries.",
+        "minLen <= maxLen; for a valid prefix code, the lengths in minLen..maxLen satisfy Kraft's inequality (as produced by BZ2_hbMakeCodeLengths); not checked."
+      ],
+      "postconditions": [
+        "For each i with minLen <= length[i] <= maxLen, code[i] is the canonical code: codes assigned in increasing length, then increasing symbol index, consecutive integers, shifted left by one between lengths (huffman.c:160-165).",
+        "Entries whose length is outside minLen..maxLen are not written; length is unchanged."
+      ],
+      "side_effects": [],
+      "thread_safety": "Operates only on its arguments; same rules as the owning stream.",
+      "no_stdio": true,
+      "source": "huffman.c:152",
+      "declared": "bzlib_private.h:281-282"
+    },
+    {
+      "name": "BZ2_hbCreateDecodeTables",
+      "signature": "void BZ2_hbCreateDecodeTables ( Int32 *limit, Int32 *base, Int32 *perm, UChar *length, Int32 minLen, Int32 maxLen, Int32 alphaSize )",
+      "public": false,
+      "summary": "Build canonical decoding tables limit/base/perm from code lengths (huffman.c:180-199); performs no validation. Not part of the public API: declared only in the private bzlib_private.h, takes private structures, not in libbz2.def.",
+      "parameters": [
+        {
+          "name": "limit",
+          "type": "Int32*",
+          "meaning": "Out.",
+          "valid": ">= 23 entries"
+        },
+        {
+          "name": "base",
+          "type": "Int32*",
+          "meaning": "Out.",
+          "valid": ">= 23 entries"
+        },
+        {
+          "name": "perm",
+          "type": "Int32*",
+          "meaning": "Out: symbols sorted by length.",
+          "valid": ">= alphaSize entries"
+        },
+        {
+          "name": "length",
+          "type": "UChar*",
+          "meaning": "Code lengths.",
+          "valid": "each in minLen..maxLen and <= 21"
+        },
+        {
+          "name": "minLen",
+          "type": "Int32",
+          "meaning": "",
+          "valid": ""
+        },
+        {
+          "name": "maxLen",
+          "type": "Int32",
+          "meaning": "",
+          "valid": "<= 21"
+        },
+        {
+          "name": "alphaSize",
+          "type": "Int32",
+          "meaning": "",
+          "valid": "<= 258"
+        }
+      ],
+      "returns": "void.",
+      "errors": [],
+      "preconditions": [
+        "Every length[i] (i < alphaSize) in minLen..maxLen and <= 21: base[length[i]+1] is incremented for every i and only base/limit[0..BZ_MAX_CODE_LEN-1] (23 entries) are cleared and summed (huffman.c:185-190); the decoder guarantees 1..20 (decompress.c:327).",
+        "limit and base have room for at least BZ_MAX_CODE_LEN (23) entries; perm for alphaSize entries; alphaSize <= 258."
+      ],
+      "postconditions": [
+        "perm[0..alphaSize-1] lists the symbols sorted by (length, index) (huffman.c:180-183).",
+        "limit[i] (minLen <= i <= maxLen) is the largest canonical code of length i (or one less than the first code of length i if there is none); base[i] is the offset such that perm[code - base[len]] is the symbol (huffman.c:185-199). Other entries of base/limit[0..22] hold intermediate counts or 0.",
+        "length is unchanged."
+      ],
+      "side_effects": [],
+      "thread_safety": "Operates only on its arguments; same rules as the owning stream.",
+      "no_stdio": true,
+      "source": "huffman.c:170",
+      "declared": "bzlib_private.h:490-492"
+    },
+    {
+      "name": "BZ2_decompress",
+      "signature": "Int32 BZ2_decompress ( DState* s )",
+      "public": false,
+      "summary": "Resumable parser for one stream: header, block headers, tables, Huffman/MTF data, inverse-BWT setup; returns when it needs input, has a block ready (state BZ_X_OUTPUT) or reaches end of stream. Does not check CRCs. Locals are saved in s->save_* on every return except the return True inside BZ_GET_FAST/BZ_GET_SMALL at decompress.c:557-579 (apparently unreachable after the cftab checks; uncertain). Not part of the public API: declared only in the private bzlib_private.h, takes private structures, not in libbz2.def.",
+      "parameters": [
+        {
+          "name": "s",
+          "type": "DState*",
+          "meaning": "Decompressor state; s->strm supplies input.",
+          "valid": "valid DState"
+        }
+      ],
+      "returns": "BZ_OK (input exhausted mid-parse, decompress.c:54; or a block is fully decoded and s->state = BZ_X_OUTPUT, decompress.c:584), BZ_STREAM_END (end-of-stream marker and stored combined CRC read, s->state = BZ_X_IDLE, decompress.c:611-612), BZ_DATA_ERROR_MAGIC, BZ_DATA_ERROR or BZ_MEM_ERROR (see errors). All returns go through RETURN -> save_state_and_return (decompress.c:619-646) except the BZ_GET_FAST/BZ_GET_SMALL `return True` noted in the summary.",
+      "errors": [
+        {
+          "code": "BZ_DATA_ERROR_MAGIC",
+          "when": "Stream header: first byte != 'B', second != 'Z', third != 'h', or block-size byte outside '1'..'9' (decompress.c:198-208)."
+        },
+        {
+          "code": "BZ_MEM_ERROR",
+          "when": "bzalloc of the block buffer fails right after the stream header: ll16 or ll4 NULL when small, tt NULL otherwise (decompress.c:211-220)."
+        },
+        {
+          "code": "BZ_DATA_ERROR",
+          "when": "Block header magic byte other than 0x31 41 59 26 53 59 (decompress.c:225-235) or end-of-stream magic byte other than 0x72 45 38 50 90 (decompress.c:591-599)."
+        },
+        {
+          "code": "BZ_DATA_ERROR",
+          "when": "origPtr < 0 or > 10 + 100000*blockSize100k (decompress.c:261-264); no byte values in use (nInUse == 0, decompress.c:283)."
+        },
+        {
+          "code": "BZ_DATA_ERROR",
+          "when": "nGroups outside 2..6 (decompress.c:288); nSelectors < 1 (decompress.c:290); a unary selector value >= nGroups (decompress.c:297)."
+        },
+        {
+          "code": "BZ_DATA_ERROR",
+          "when": "Coding-table delta walks a code length outside 1..20 (decompress.c:327)."
+        },
+        {
+          "code": "BZ_DATA_ERROR",
+          "when": "Huffman decoding (GET_MTF_VAL): more groups needed than nSelectors, code longer than 20 bits, or decoded index outside 0..BZ_MAX_ALPHA_SIZE-1 (decompress.c:75-101)."
+        },
+        {
+          "code": "BZ_DATA_ERROR",
+          "when": "RUNA/RUNB run length N >= 2*1024*1024 (decompress.c:396); block would exceed nblockMAX = 100000*blockSize100k symbols (decompress.c:410, 417, 427)."
+        },
+        {
+          "code": "BZ_DATA_ERROR",
+          "when": "After the block: origPtr >= nblock (decompress.c:497-498); an unzftab entry outside 0..nblock, a cftab entry outside 0..nblock, or cftab descending (decompress.c:502-522)."
+        }
+      ],
+      "preconditions": [
+        "s was set up by BZ2_bzDecompressInit and s->state >= BZ_X_MAGIC_1 (the only caller, BZ2_bzDecompress, checks this, bzlib.c:841-842); s->strm->next_in/avail_in describe the available input."
+      ],
+      "postconditions": [
+        "On BZ_OK with s->state == BZ_X_OUTPUT the block is decoded into tt or ll16/ll4 and the inverse-BWT start (tPos, nblock_used, k0, CRC init) is set up (decompress.c:524-581); otherwise s->state names the GET_* point to resume at.",
+        "On BZ_STREAM_END s->state == BZ_X_IDLE and s->storedCombinedCRC holds the stored combined CRC; the caller compares it (bzlib.c:843-849).",
+        "On error the stream is left mid-parse; BZ2_bzDecompress returns the code to the user unchanged (bzlib.c:851)."
+      ],
+      "side_effects": [
+        "bzalloc of tt or ll16/ll4 (decompress.c:211-220).",
+        "stderr at verbosity >= 2.",
+        "default case of the state switch: AssertH 4001 (decompress.c:614); falling out of the switch: AssertH 4002 (decompress.c:617)."
+      ],
+      "thread_safety": "Operates only on its arguments; same rules as the owning stream.",
+      "no_stdio": true,
+      "source": "decompress.c:106",
+      "declared": "bzlib_private.h:487-488"
+    },
+    {
+      "name": "BZ2_indexIntoF",
+      "signature": "Int32 BZ2_indexIntoF ( Int32 indx, Int32 *cftab )",
+      "public": false,
+      "summary": "Binary search: largest nb in 0..255 with cftab[nb] <= indx (bzlib.c:687-698). Pure. Defined __inline__ but externally visible. Not part of the public API: declared only in the private bzlib_private.h, takes private structures, not in libbz2.def.",
+      "parameters": [
+        {
+          "name": "indx",
+          "type": "Int32",
+          "meaning": "Position.",
+          "valid": "0..cftab[256]-1"
+        },
+        {
+          "name": "cftab",
+          "type": "Int32*",
+          "meaning": "Cumulative frequency table, 257 non-decreasing entries.",
+          "valid": "non-NULL"
+        }
+      ],
+      "returns": "Int32 in 0..255.",
+      "errors": [],
+      "preconditions": [
+        "cftab points to at least 256 entries, nondecreasing over cftab[1..255] (only cftab[1..255] are read: mid ranges over 1..255).",
+        "For a meaningful result, cftab[0] <= indx < cftab[256] (as in the small decoder, where cftab is the cumulative symbol count and 0 <= indx < nblock)."
+      ],
+      "postconditions": [
+        "Returns the largest nb in 0..255 with nb == 0 or cftab[nb] <= indx (bzlib.c:689-697). Pure: no writes."
+      ],
+      "side_effects": [],
+      "thread_safety": "Pure; thread-safe.",
+      "no_stdio": true,
+      "source": "bzlib.c:687",
+      "declared": "bzlib_private.h:484-485"
+    },
+    {
+      "name": "BZ2_bz__AssertH__fail",
+      "signature": "void BZ2_bz__AssertH__fail ( int errcode )",
+      "public": false,
+      "summary": "Fatal internal-error handler: prints a bug report message with errcode and the version to stderr (extra text for 1007) and calls exit(3) (bzlib.c:40-86). Replaced by user-supplied bz_internal_error under BZ_NO_STDIO. Not part of the public API: declared only in the private bzlib_private.h, takes private structures, not in libbz2.def.",
+      "parameters": [
+        {
+          "name": "errcode",
+          "type": "int",
+          "meaning": "Assertion number: 1001-1007 blocksort, 2001-2002 huffman, 3001-3007 compress, 4001-4002 decompress, 6001 bzlib.",
+          "valid": "any"
+        }
+      ],
+      "returns": "Never returns.",
+      "errors": [],
+      "preconditions": [
+        "none"
+      ],
+      "postconditions": [
+        "Never returns: prints the report to stderr and calls exit(3) (bzlib.c:40-86), running atexit handlers but no library cleanup."
+      ],
+      "side_effects": [
+        "fprintf(stderr); exit(3) terminates the process without cleanup."
+      ],
+      "thread_safety": "Terminates the process.",
+      "no_stdio": false,
+      "source": "bzlib.c:40",
+      "declared": "bzlib_private.h:58"
+    }
+  ],
+  "data": [
+    {
+      "name": "BZ2_crc32Table",
+      "type": "UInt32[256] (unsigned int)",
+      "source": "crctable.c:31",
+      "declared": "bzlib_private.h:155",
+      "public": false,
+      "summary": "Lookup table for the MSB-first CRC-32, polynomial 0x04C11DB7, used by BZ_UPDATE_CRC (bzlib_private.h:167-172) for block CRCs (CRC-32/BZIP2). Read-only in practice but not const. Not part of the public API."
+    },
+    {
+      "name": "BZ2_rNums",
+      "type": "Int32[512] (int)",
+      "source": "randtable.c:26",
+      "declared": "bzlib_private.h:131",
+      "public": false,
+      "summary": "Table of run lengths driving the XOR mask used to de-randomise blocks whose randomised bit is set (BZ_RAND_UPD_MASK, bzlib_private.h:133-149). Only used by the decoder; the compressor never randomises. Not const. Not part of the public API."
+    }
+  ],
+  "types": [
+    {
+      "name": "bz_stream",
+      "source": "bzlib.h:57-75",
+      "summary": "Caller-allocated stream record shared by caller and library for the low-level API. Must not be moved or copied between Init and End (state->strm back-pointer is checked).",
+      "fields": [
+        {
+          "name": "next_in",
+          "type": "char *",
+          "set_by": "caller before each Compress/Decompress; library advances it per byte consumed",
+          "read_by": "BZ2_bzCompress, BZ2_bzDecompress",
+          "meaning": "Next input byte; not retained between calls."
+        },
+        {
+          "name": "avail_in",
+          "type": "unsigned int",
+          "set_by": "caller; library decrements per byte consumed",
+          "read_by": "BZ2_bzCompress, BZ2_bzDecompress",
+          "meaning": "Bytes available at next_in. While FLUSHING/FINISHING it must keep the value the library left (bzlib.c:444, 454)."
+        },
+        {
+          "name": "total_in_lo32",
+          "type": "unsigned int",
+          "set_by": "Init (0); library increments",
+          "read_by": "caller; BZ2_bzWriteClose64",
+          "meaning": "Low 32 bits of total bytes consumed since Init."
+        },
+        {
+          "name": "total_in_hi32",
+          "type": "unsigned int",
+          "set_by": "Init (0); library increments on lo32 wrap",
+          "read_by": "caller; BZ2_bzWriteClose64",
+          "meaning": "High 32 bits of total bytes consumed."
+        },
+        {
+          "name": "next_out",
+          "type": "char *",
+          "set_by": "caller; library advances per byte produced",
+          "read_by": "BZ2_bzCompress, BZ2_bzDecompress",
+          "meaning": "Where the next output byte goes."
+        },
+        {
+          "name": "avail_out",
+          "type": "unsigned int",
+          "set_by": "caller; library decrements per byte produced",
+          "read_by": "BZ2_bzCompress, BZ2_bzDecompress",
+          "meaning": "Free space at next_out (0 allowed; not checked)."
+        },
+        {
+          "name": "total_out_lo32",
+          "type": "unsigned int",
+          "set_by": "Init (0); library increments",
+          "read_by": "caller; BZ2_bzWriteClose64",
+          "meaning": "Low 32 bits of total bytes produced."
+        },
+        {
+          "name": "total_out_hi32",
+          "type": "unsigned int",
+          "set_by": "Init (0); library increments on lo32 wrap",
+          "read_by": "caller; BZ2_bzWriteClose64",
+          "meaning": "High 32 bits of total bytes produced."
+        },
+        {
+          "name": "state",
+          "type": "void *",
+          "set_by": "Init (new EState/DState, only on success); End sets NULL",
+          "read_by": "all stream functions",
+          "meaning": "Opaque private state; NULL or foreign state gives BZ_PARAM_ERROR."
+        },
+        {
+          "name": "bzalloc",
+          "type": "void *(*)(void *,int,int)",
+          "set_by": "caller before Init; Init stores default_bzalloc (malloc) if NULL",
+          "read_by": "Init; BZ2_bzDecompress when reading the header",
+          "meaning": "Allocator, always called as bzalloc(opaque, nbytes, 1); must return NULL on failure; must stay valid until End."
+        },
+        {
+          "name": "bzfree",
+          "type": "void (*)(void *,void *)",
+          "set_by": "caller before Init; Init stores default_bzfree (free, skips NULL) if NULL",
+          "read_by": "Init failure path; End",
+          "meaning": "Deallocator, called as bzfree(opaque, ptr)."
+        },
+        {
+          "name": "opaque",
+          "type": "void *",
+          "set_by": "caller before Init",
+          "read_by": "passed to bzalloc/bzfree",
+          "meaning": "User cookie; never interpreted."
+        }
+      ]
+    },
+    {
+      "name": "BZFILE",
+      "source": "bzlib.h:140",
+      "summary": "typedef void BZFILE; opaque handle of the high-level and zlib-style APIs (absent under BZ_NO_STDIO). Points to private bzFile (bzlib.c:892-902): FILE* handle, 5000-byte buffer, writing flag, embedded bz_stream, lastErr, initialisedOk. Created by BZ2_bzReadOpen/BZ2_bzWriteOpen/BZ2_bzopen/BZ2_bzdopen; freed by BZ2_bzReadClose, a freeing BZ2_bzWriteClose[64], or BZ2_bzclose. Allocated with malloc, not bzalloc.",
+      "fields": [
+        {
+          "name": "handle",
+          "type": "FILE* (private)",
+          "set_by": "open functions",
+          "read_by": "read/write/close functions",
+          "meaning": "Underlying file; closed only by BZ2_bzclose and the failure path of BZ2_bzopen/BZ2_bzdopen."
+        },
+        {
+          "name": "buf / bufN",
+          "type": "Char[5000] / Int32 (private)",
+          "set_by": "library",
+          "read_by": "library; exposed via BZ2_bzReadGetUnused",
+          "meaning": "Compressed-data staging buffer."
+        },
+        {
+          "name": "writing",
+          "type": "Bool (private)",
+          "set_by": "open functions",
+          "read_by": "all functions",
+          "meaning": "Read vs write handle; mismatch gives BZ_SEQUENCE_ERROR."
+        },
+        {
+          "name": "strm",
+          "type": "bz_stream (private)",
+          "set_by": "open functions",
+          "read_by": "library",
+          "meaning": "Embedded stream with default allocators."
+        },
+        {
+          "name": "lastErr",
+          "type": "Int32 (private)",
+          "set_by": "every high-level call via BZ_SETERR",
+          "read_by": "BZ2_bzReadGetUnused, BZ2_bzWriteClose64, BZ2_bzread, BZ2_bzerror",
+          "meaning": "Last status."
+        },
+        {
+          "name": "initialisedOk",
+          "type": "Bool (private)",
+          "set_by": "open functions",
+          "read_by": "BZ2_bzReadClose",
+          "meaning": "Embedded stream initialised."
+        }
+      ]
+    }
+  ],
+  "macros": [
+    {
+      "name": "BZ_RUN",
+      "value": "0",
+      "kind": "action",
+      "source": "bzlib.h:38",
+      "summary": "BZ2_bzCompress action: compress, accept more input later."
+    },
+    {
+      "name": "BZ_FLUSH",
+      "value": "1",
+      "kind": "action",
+      "source": "bzlib.h:39",
+      "summary": "BZ2_bzCompress action: end the current block after the current avail_in bytes (up to 31 bits stay buffered)."
+    },
+    {
+      "name": "BZ_FINISH",
+      "value": "2",
+      "kind": "action",
+      "source": "bzlib.h:40",
+      "summary": "BZ2_bzCompress action: compress remaining avail_in bytes and terminate the stream."
+    },
+    {
+      "name": "BZ_OK",
+      "value": "0",
+      "kind": "return",
+      "source": "bzlib.h:42",
+      "summary": "Success; from BZ2_bzDecompress: needs more input/output space."
+    },
+    {
+      "name": "BZ_RUN_OK",
+      "value": "1",
+      "kind": "return",
+      "source": "bzlib.h:43",
+      "summary": "BZ2_bzCompress: RUNNING with progress, or a flush completed."
+    },
+    {
+      "name": "BZ_FLUSH_OK",
+      "value": "2",
+      "kind": "return",
+      "source": "bzlib.h:44",
+      "summary": "BZ2_bzCompress: flush in progress."
+    },
+    {
+      "name": "BZ_FINISH_OK",
+      "value": "3",
+      "kind": "return",
+      "source": "bzlib.h:45",
+      "summary": "BZ2_bzCompress: finish in progress."
+    },
+    {
+      "name": "BZ_STREAM_END",
+      "value": "4",
+      "kind": "return",
+      "source": "bzlib.h:46",
+      "summary": "Compression finished, or end of compressed stream reached with good combined CRC."
+    },
+    {
+      "name": "BZ_SEQUENCE_ERROR",
+      "value": "(-1)",
+      "kind": "return",
+      "source": "bzlib.h:47",
+      "summary": "Call illegal in current state (see state machines), read/write handle mismatch, or BZ2_bzReadGetUnused before end of stream."
+    },
+    {
+      "name": "BZ_PARAM_ERROR",
+      "value": "(-2)",
+      "kind": "return",
+      "source": "bzlib.h:48",
+      "summary": "Bad argument (NULL, out of range, invalid stream); also BZ2_bzCompress BZ_RUN without progress and unknown action in RUNNING."
+    },
+    {
+      "name": "BZ_MEM_ERROR",
+      "value": "(-3)",
+      "kind": "return",
+      "source": "bzlib.h:49",
+      "summary": "Allocation failed."
+    },
+    {
+      "name": "BZ_DATA_ERROR",
+      "value": "(-4)",
+      "kind": "return",
+      "source": "bzlib.h:50",
+      "summary": "Corrupt compressed data or CRC mismatch."
+    },
+    {
+      "name": "BZ_DATA_ERROR_MAGIC",
+      "value": "(-5)",
+      "kind": "return",
+      "source": "bzlib.h:51",
+      "summary": "Stream does not start with BZh1..BZh9."
+    },
+    {
+      "name": "BZ_IO_ERROR",
+      "value": "(-6)",
+      "kind": "return",
+      "source": "bzlib.h:52",
+      "summary": "High-level API: ferror set, short fwrite, or fflush failure."
+    },
+    {
+      "name": "BZ_UNEXPECTED_EOF",
+      "value": "(-7)",
+      "kind": "return",
+      "source": "bzlib.h:53",
+      "summary": "Input ended before the end-of-stream marker (BZ2_bzRead, BZ2_bzBuffToBuffDecompress)."
+    },
+    {
+      "name": "BZ_OUTBUFF_FULL",
+      "value": "(-8)",
+      "kind": "return",
+      "source": "bzlib.h:54",
+      "summary": "Buffer utilities: output does not fit in *destLen."
+    },
+    {
+      "name": "BZ_CONFIG_ERROR",
+      "value": "(-9)",
+      "kind": "return",
+      "source": "bzlib.h:55",
+      "summary": "Library miscompiled: int/short/char not 4/2/1 bytes (bzlib.c:90-97)."
+    },
+    {
+      "name": "BZ_MAX_UNUSED",
+      "value": "5000",
+      "kind": "limit",
+      "source": "bzlib.h:138",
+      "summary": "Size of the high-level staging buffer; max nUnused for BZ2_bzReadOpen and max returned by BZ2_bzReadGetUnused; fread/fwrite chunk size. Only without BZ_NO_STDIO."
+    },
+    {
+      "name": "BZ_NO_STDIO",
+      "value": "(user-defined)",
+      "kind": "config",
+      "source": "bzlib.h:25, 137, 240; bzlib_private.h:27, 56, 86; bzlib.c:40, 881, 1375",
+      "summary": "Removes stdio: no <stdio.h>, no BZ_MAX_UNUSED/BZFILE/high-level/zlib-style functions (BZ2_bzlibVersion stays), no BZ2_bz__AssertH__fail; AssertH calls user-supplied bz_internal_error(int); verbosity output compiled out. Must be defined consistently for library and client."
+    },
+    {
+      "name": "BZ_IMPORT",
+      "value": "(user-defined)",
+      "kind": "config",
+      "source": "bzlib.h:78-80",
+      "summary": "Defined by clients that load the Windows DLL dynamically (dlltest.c:10). Prevents bzlib.h from defining BZ_EXPORT, so under _WIN32 the declarations become function-pointer variables. No effect elsewhere."
+    },
+    {
+      "name": "BZ_EXPORT",
+      "value": "(empty)",
+      "kind": "config",
+      "source": "bzlib.h:78-80, 87",
+      "summary": "Defined by bzlib.h unless BZ_IMPORT is defined. Under _WIN32 selects BZ_API(f) = WINAPI f and BZ_EXTERN = extern (normal declarations); otherwise unused."
+    },
+    {
+      "name": "BZ_API",
+      "value": "BZ_API(func): func (non-Windows); WINAPI func (Windows, BZ_EXPORT); (WINAPI * func) (Windows, no BZ_EXPORT)",
+      "kind": "config",
+      "source": "bzlib.h:88, 92, 96",
+      "summary": "Wraps each public function name in declarations and definitions; adds the __stdcall convention on Windows or turns declarations into function pointers for dynamic loading."
+    },
+    {
+      "name": "BZ_EXTERN",
+      "value": "extern (empty on Windows without BZ_EXPORT)",
+      "kind": "config",
+      "source": "bzlib.h:89, 93, 97",
+      "summary": "Storage class prefix of each public declaration."
+    }
+  ],
+  "programs": [
+    {
+      "name": "bzip2",
+      "source": "bzip2.c",
+      "installed": "Makefile:78",
+      "summary": "Block-sorting file compressor; compresses by default. Mode also derived from argv[0] (bzip2.c:1870-1880). Files: F2F name -> name.bz2 (and back via suffix map .bz2/.bz -> '', .tbz2/.tbz -> .tar, else .out); output created O_EXCL 0600 then mode/owner/times copied from input; input deleted unless -k. Decompression handles concatenated streams.",
+      "options": [
+        "-c, --stdout: output to standard output",
+        "-d, --decompress: decompress",
+        "-z, --compress: compress",
+        "-t, --test: test integrity (incompatible with -c, exit 1)",
+        "-f, --force: overwrite output (removed first); allow non-regular and hard-linked inputs; with -d copy non-bzip2 data through (also appends whole input after trailing garbage, see md section 9 item 18)",
+        "-k, --keep: keep input files",
+        "-s, --small: small-memory decompression; caps compression block size at 2",
+        "-q, --quiet: suppress non-critical messages",
+        "-v, --verbose: increase verbosity (max 4)",
+        "-1 .. -9: block size 100k..900k (default 9)",
+        "--fast: -1",
+        "--best: -9",
+        "-L, --license, -V, --version: print version/license to stderr and continue",
+        "-h, --help: usage to stderr, exit 0",
+        "--exponential: workFactor = 1 (undocumented)",
+        "--repetitive-best, --repetitive-fast: warn 'redundant', no effect",
+        "--: end of options"
+      ],
+      "exit_codes": [
+        "0: success (also -h/--help)",
+        "1: bad flag, -c with -t, per-file refusals (missing/unreadable input, directory, non-regular file, existing output, hard links, already-compressed suffix, terminal I/O), over-long name, I/O error, out of memory, SIGINT/SIGTERM/SIGHUP in file-to-file mode",
+        "2: data/CRC error or unexpected EOF when decompressing (immediate), not a bzip2 file (continues), any -t failure (continues), SIGSEGV/SIGBUS while decompressing/testing",
+        "3: internal panic, BZ_CONFIG_ERROR, SIGSEGV/SIGBUS while compressing, libbz2 assertion (exit(3))"
+      ],
+      "environment": [
+        "BZIP2: whitespace-separated tokens prepended to the arguments (bzip2.c:1842)",
+        "BZIP: likewise, after BZIP2 (bzip2.c:1843)"
+      ]
+    },
+    {
+      "name": "bunzip2",
+      "source": "bzip2.c",
+      "installed": "Makefile:79 (copy of bzip2)",
+      "summary": "Copy of the bzip2 binary; name contains 'unzip', so the default is decompression (bzip2.c:1870-1872). Same options, exit codes and environment as bzip2.",
+      "options": [
+        "-c, --stdout: output to standard output",
+        "-d, --decompress: decompress",
+        "-z, --compress: compress",
+        "-t, --test: test integrity (incompatible with -c, exit 1)",
+        "-f, --force: overwrite output (removed first); allow non-regular and hard-linked inputs; with -d copy non-bzip2 data through (also appends whole input after trailing garbage, see md section 9 item 18)",
+        "-k, --keep: keep input files",
+        "-s, --small: small-memory decompression; caps compression block size at 2",
+        "-q, --quiet: suppress non-critical messages",
+        "-v, --verbose: increase verbosity (max 4)",
+        "-1 .. -9: block size 100k..900k (default 9)",
+        "--fast: -1",
+        "--best: -9",
+        "-L, --license, -V, --version: print version/license to stderr and continue",
+        "-h, --help: usage to stderr, exit 0",
+        "--exponential: workFactor = 1 (undocumented)",
+        "--repetitive-best, --repetitive-fast: warn 'redundant', no effect",
+        "--: end of options"
+      ],
+      "exit_codes": [
+        "0: success (also -h/--help)",
+        "1: bad flag, -c with -t, per-file refusals (missing/unreadable input, directory, non-regular file, existing output, hard links, already-compressed suffix, terminal I/O), over-long name, I/O error, out of memory, SIGINT/SIGTERM/SIGHUP in file-to-file mode",
+        "2: data/CRC error or unexpected EOF when decompressing (immediate), not a bzip2 file (continues), any -t failure (continues), SIGSEGV/SIGBUS while decompressing/testing",
+        "3: internal panic, BZ_CONFIG_ERROR, SIGSEGV/SIGBUS while compressing, libbz2 assertion (exit(3))"
+      ],
+      "environment": [
+        "BZIP2: whitespace-separated tokens prepended to the arguments (bzip2.c:1842)",
+        "BZIP: likewise, after BZIP2 (bzip2.c:1843)"
+      ]
+    },
+    {
+      "name": "bzcat",
+      "source": "bzip2.c",
+      "installed": "Makefile:80 (copy of bzip2)",
+      "summary": "Copy of the bzip2 binary; name contains 'zcat', so the default is decompression to standard output (bzip2.c:1874-1880). Same options, exit codes and environment as bzip2.",
+      "options": [
+        "-c, --stdout: output to standard output",
+        "-d, --decompress: decompress",
+        "-z, --compress: compress",
+        "-t, --test: test integrity (incompatible with -c, exit 1)",
+        "-f, --force: overwrite output (removed first); allow non-regular and hard-linked inputs; with -d copy non-bzip2 data through (also appends whole input after trailing garbage, see md section 9 item 18)",
+        "-k, --keep: keep input files",
+        "-s, --small: small-memory decompression; caps compression block size at 2",
+        "-q, --quiet: suppress non-critical messages",
+        "-v, --verbose: increase verbosity (max 4)",
+        "-1 .. -9: block size 100k..900k (default 9)",
+        "--fast: -1",
+        "--best: -9",
+        "-L, --license, -V, --version: print version/license to stderr and continue",
+        "-h, --help: usage to stderr, exit 0",
+        "--exponential: workFactor = 1 (undocumented)",
+        "--repetitive-best, --repetitive-fast: warn 'redundant', no effect",
+        "--: end of options"
+      ],
+      "exit_codes": [
+        "0: success (also -h/--help)",
+        "1: bad flag, -c with -t, per-file refusals (missing/unreadable input, directory, non-regular file, existing output, hard links, already-compressed suffix, terminal I/O), over-long name, I/O error, out of memory, SIGINT/SIGTERM/SIGHUP in file-to-file mode",
+        "2: data/CRC error or unexpected EOF when decompressing (immediate), not a bzip2 file (continues), any -t failure (continues), SIGSEGV/SIGBUS while decompressing/testing",
+        "3: internal panic, BZ_CONFIG_ERROR, SIGSEGV/SIGBUS while compressing, libbz2 assertion (exit(3))"
+      ],
+      "environment": [
+        "BZIP2: whitespace-separated tokens prepended to the arguments (bzip2.c:1842)",
+        "BZIP: likewise, after BZIP2 (bzip2.c:1843)"
+      ]
+    },
+    {
+      "name": "bzip2recover",
+      "source": "bzip2recover.c",
+      "installed": "Makefile:81",
+      "summary": "Standalone (no libbz2) recovery tool: scans damaged_file bit by bit for block and end-of-stream magics and writes each block of >= 130 bits as a single-block stream rec%05d<basename>[.bz2] (header always BZh9, combined CRC = block CRC) next to the input, created O_EXCL 0600.",
+      "options": [
+        "exactly one argument: the damaged file name (< 1980 characters)"
+      ],
+      "exit_codes": [
+        "0: success",
+        "1: wrong argument count, name too long, unreadable input, no blocks found, 50000th block/end magic match (BZ_MAX_HANDLED_BLOCKS 50000; currBlock starts at 0 and is checked before increment, bzip2recover.c:398, 441-443), read/write/malloc error, output file already exists"
+      ],
+      "environment": []
+    },
+    {
+      "name": "bzgrep",
+      "source": "bzgrep",
+      "installed": "Makefile:92",
+      "summary": "sh script: runs grep over 'bzip2 -cdfq' of each file (or stdin), prefixing file names when several files; tries FILE.bz2 if FILE is missing.",
+      "options": [
+        "grep options before the pattern are passed through; -e/-f take the pattern, -A/-B take an argument"
+      ],
+      "exit_codes": [
+        "1: no pattern (usage)",
+        "otherwise grep's status (stdin) or the last non-zero grep status, else 0"
+      ],
+      "environment": [
+        "GREP (default grep)",
+        "EGREP",
+        "FGREP",
+        "PATH (/usr/bin prepended)",
+        "BZIP2/BZIP (via bzip2)"
+      ]
+    },
+    {
+      "name": "bzegrep",
+      "source": "bzgrep",
+      "installed": "Makefile:93 (symlink to bzgrep)",
+      "summary": "Symlink to bzgrep; name ends in 'egrep', so the matcher is ${EGREP-egrep} (bzgrep:13).",
+      "options": [
+        "as bzgrep"
+      ],
+      "exit_codes": [
+        "as bzgrep"
+      ],
+      "environment": [
+        "EGREP",
+        "PATH",
+        "BZIP2/BZIP (via bzip2)"
+      ]
+    },
+    {
+      "name": "bzfgrep",
+      "source": "bzgrep",
+      "installed": "Makefile:94 (symlink to bzgrep)",
+      "summary": "Symlink to bzgrep; name ends in 'fgrep', so the matcher is ${FGREP-fgrep} (bzgrep:14).",
+      "options": [
+        "as bzgrep"
+      ],
+      "exit_codes": [
+        "as bzgrep"
+      ],
+      "environment": [
+        "FGREP",
+        "PATH",
+        "BZIP2/BZIP (via bzip2)"
+      ]
+    },
+    {
+      "name": "bzmore",
+      "source": "bzmore",
+      "installed": "Makefile:96",
+      "summary": "sh script: pages 'bzip2 -cdfq' of each file (or of stdin if it is not a terminal) through more, prompting between files (e/q quit, s skip).",
+      "options": [
+        "file names only"
+      ],
+      "exit_codes": [
+        "not explicitly defined; determined by the shell's exit trap (uncertain)"
+      ],
+      "environment": [
+        "PATH (/usr/bin prepended)",
+        "BZIP2/BZIP (via bzip2)"
+      ]
+    },
+    {
+      "name": "bzless",
+      "source": "bzmore",
+      "installed": "Makefile:97 (symlink to bzmore)",
+      "summary": "Symlink to bzmore; name ends in 'less', so the pager is less (bzmore:10).",
+      "options": [
+        "as bzmore"
+      ],
+      "exit_codes": [
+        "as bzmore"
+      ],
+      "environment": [
+        "PATH",
+        "BZIP2/BZIP (via bzip2)"
+      ]
+    },
+    {
+      "name": "bzdiff",
+      "source": "bzdiff",
+      "installed": "Makefile:99",
+      "summary": "sh script: runs diff on one or two files, decompressing *.bz2 operands with bzip2 -cdfq (one file F compares F.bz2 with F; two .bz2 files use a mktemp file).",
+      "options": [
+        "arguments starting with - are passed to the comparator; 1 or 2 existing regular files"
+      ],
+      "exit_codes": [
+        "1: missing/non-regular file, no files, more than two files, mktemp failure",
+        "otherwise the comparator's status"
+      ],
+      "environment": [
+        "DIFF (default diff)",
+        "CMP",
+        "TMPDIR (default /tmp)",
+        "PATH (/usr/bin:/bin prepended)",
+        "BZIP2/BZIP (via bzip2)"
+      ]
+    },
+    {
+      "name": "bzcmp",
+      "source": "bzdiff",
+      "installed": "Makefile:100 (symlink to bzdiff)",
+      "summary": "Symlink to bzdiff; name ends in 'cmp', so the comparator is ${CMP-cmp} (bzdiff:18).",
+      "options": [
+        "as bzdiff"
+      ],
+      "exit_codes": [
+        "as bzdiff"
+      ],
+      "environment": [
+        "CMP",
+        "TMPDIR",
+        "PATH",
+        "BZIP2/BZIP (via bzip2)"
+      ]
+    }
+  ]
+}

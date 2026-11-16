@@ -1,7 +1,7 @@
 /-!
 # Oracle: forward Burrows-Wheeler transform
 
-`Bzip2.Oracle.Compress.bwt block` returns the last column of the sorted rotations of `block`
+`Bzip2.Oracle.Compress.Bwt.bwt block` returns the last column of the sorted rotations of `block`
 (what `BZ2_blockSort` leaves in `ptr` and `compress.c` turns into `block[ptr[i]-1]`, see
 `blocksort.c:1031-1089`) and `origPtr`, the row of rotation 0 (`blocksort.c:1084-1088`).
 
@@ -15,7 +15,7 @@ equals rotation 0. This need not match the C library's `origPtr` on periodic blo
 `oracle/compress/byte-exact`); the inverse transform recovers `block` either way.
 -/
 
-namespace Bzip2.Oracle.Compress
+namespace Bzip2.Oracle.Compress.Bwt
 
 /-- Sorted order of the rotations of `block` (row ↦ start index), together with the equivalence
 class of each start index (equal rotations have equal classes; classes increase with rank). -/
@@ -94,4 +94,4 @@ def bwt (block : ByteArray) : ByteArray × Nat := Id.run do
     if orig == n && c[v]! == c[0]! then orig := i
   return (out, orig)
 
-end Bzip2.Oracle.Compress
+end Bzip2.Oracle.Compress.Bwt

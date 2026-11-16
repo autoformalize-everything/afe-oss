@@ -1,12 +1,23 @@
 /-!
 # bzip2's CRC, table-driven
 
-The CRC of `upstream/crctable.c` (`BZ2_crc32Table`) and the macros of `upstream/bzlib_private.h`
-(lines 153-172): MSB-first CRC-32 with polynomial `0x04c11db7` (the table's entry 1), initial
-value `0xffffffff`, final complement, no reflection. The table is generated here, not pasted.
+The table `BZ2_crc32Table` is `crctable.c:31-99`; the CRC macros are `bzlib_private.h:157-172`
+(`BZ_INITIALISE_CRC` at `bzlib_private.h:157-160`, `BZ_FINALISE_CRC` at
+`bzlib_private.h:162-165`, `BZ_UPDATE_CRC` at `bzlib_private.h:167-172`). It is the MSB-first
+CRC-32 with polynomial `0x04c11db7` (the table's entry 1, `crctable.c:35`), initial value
+`0xffffffff`, final complement, no reflection. The table is generated here, not pasted: entry `i`
+is `i` shifted into the top byte, then eight shift-and-xor steps.
 
 The combined stream CRC is `compress.c:607-608`: `combined := rotl combined 1 ^^^ blockCRC`,
 starting from 0 (`bzlib.c:192`).
+
+Edge cases this module settles (the C macros work on one byte at a time and have none):
+
+* The empty input has CRC `0`: no byte is folded in, so the state stays `0xffffffff` and the
+  final complement gives `0`.
+* The functions take a slice `data[start, stop)` of a `ByteArray`. `stop` is clamped to
+  `data.size`, and a `start` that is not below the clamped `stop` gives the empty slice, so
+  out-of-range indices never fail and never read past the array.
 -/
 
 namespace Bzip2.Oracle.Crc

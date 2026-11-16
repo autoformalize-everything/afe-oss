@@ -1,7 +1,14 @@
 import Bzip2.Oracle.Crc
 
-/-! Unit tests of `Bzip2.Oracle.Crc`. The table entries are those of `upstream/crctable.c`:
-entries 0-3 (line 35), 128 (line 67), 252-255 (line 98). -/
+/-!
+Unit tests of `Bzip2.Oracle.Crc`. The table entries are those of `crctable.c`: entries 0-3 at
+`crctable.c:35`, entry 128 at `crctable.c:67`, entries 252-255 at `crctable.c:98`. The combined CRC
+is `compress.c:607-608`.
+
+Edge cases checked: the empty input (and the empty slice `[0, 0)`) has CRC `0`; slices with an
+inner start and stop; a `stop` beyond the array end is clamped; a slice wholly past the end is
+empty.
+-/
 
 open Bzip2.Oracle.Crc
 

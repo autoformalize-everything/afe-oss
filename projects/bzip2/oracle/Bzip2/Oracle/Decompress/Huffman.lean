@@ -16,7 +16,8 @@ time until the value is at most `limit[zn]`.
 Edge cases, all as in the C code, with no check of the table's shape:
 * An incomplete length set (Kraft sum below 1): a code that matches no length keeps growing
   until `zn > 20` and the decoder fails with `Error.data` (`decompress.c:91-92`). Entries of
-  `limit` past `maxLen` are 0 (`huffman.c:190`), so the loop does not stop there either.
+  `limit` past `maxLen` are 0 (`huffman.c:190`), and the value read is positive by then, so
+  the loop does not stop there either.
 * An over-subscribed set (Kraft sum above 1): the tables are still built and the symbol found
   is the one the canonical arithmetic gives; some `perm` entries are never reached.
 * The index `zvec - base[zn]` outside `0 ..< 258` is `Error.data` (`decompress.c:98-100`).

@@ -1,0 +1,1 @@
+{"outcome":"success","summary":"Resolved the merge conflict with origin/master in spec/Bzip2/Spec.lean (kept both Bwt and MtfRle2 imports); Bwt spec unchanged; tools/verify.sh passes.","progress":"","debug":""}

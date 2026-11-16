@@ -9,10 +9,13 @@ The input is the block's MTF/RLE2 symbol sequence, ending with EOB.
 
 namespace Bzip2.Oracle.Compress.Huffman
 
-/-- `BZ_MAX_CODE_LEN`-independent limits: `BZ_G_SIZE`, `BZ_N_ITERS`, `BZ_N_GROUPS` (`bzlib_private.h`). -/
+/-- `BZ_G_SIZE`: symbols per selector group (`bzlib_private.h:122`). -/
 def groupSize : Nat := 50
+/-- `BZ_N_ITERS`: refinement iterations (`bzlib_private.h:123`). -/
 def numIters : Nat := 4
+/-- `BZ_N_GROUPS`: maximum number of coding tables (`bzlib_private.h:121`). -/
 def numGroups : Nat := 6
+
 /-- The maximum code length passed by `sendMTFValues` (`compress.c`). -/
 def maxCodeLen : Nat := 17
 
@@ -144,7 +147,8 @@ private def initialLens (mtfFreq : Array Nat) (alphaSize nMTF nGroups : Nat) :
       aFreq := aFreq - mtfFreq[ge.toNat]!
       ge := ge - 1
     len := len.set! (nPart - 1)
-      ((Array.range alphaSize).map fun (v : Nat) => if Int.ofNat v ≥ gs && Int.ofNat v ≤ ge then 0 else 15)
+      ((Array.range alphaSize).map fun (v : Nat) =>
+        if Int.ofNat v ≥ gs && Int.ofNat v ≤ ge then 0 else 15)
     nPart := nPart - 1
     gs := ge + 1
     remF := remF - aFreq

@@ -34,3 +34,7 @@ RUN curl -fsSL https://raw.githubusercontent.com/leanprover/elan/master/elan-ini
 COPY lakefile.toml lake-manifest.json lean-toolchain /opt/bzip2-lake/
 RUN cd /opt/bzip2-lake && lake exe cache get && lake build Mathlib \
   && chmod -R a+rX /opt/bzip2-lake && chmod -R a-w /opt/bzip2-lake/.lake
+
+# Login shells (`bash -lc`, which Codex runs every command in) reset PATH from /etc/profile and
+# lose /opt/elan/bin: put the Lean commands where every shell finds them.
+RUN ln -s /opt/elan/bin/* /usr/local/bin/

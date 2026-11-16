@@ -18,7 +18,7 @@ lemmas (`xor`, shifts, `rotateLeft`, `getLsbD`), and later proofs over the spec 
 no table, so it states what the table computes.
 -/
 
-namespace Bzip2.Spec
+namespace Bzip2.Spec.Crc
 
 /-- The generator polynomial, MSB first (not reflected). -/
 def crcPoly : BitVec 32 := 0x04C11DB7
@@ -59,4 +59,4 @@ compresses to two blocks; `bzip2 -vv` reports block CRCs 0xfc70ec8f and 0xb88cb1
 combined CRC 0x406d6844 (also the stream trailer). -/
 example : streamCrc [0xfc70ec8f#32, 0xb88cb15b#32] = 0x406d6844#32 := by decide +kernel
 
-end Bzip2.Spec
+end Bzip2.Spec.Crc

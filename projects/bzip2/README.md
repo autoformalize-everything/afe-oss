@@ -22,8 +22,9 @@ file in the same commit.
 - `tools/check_surface.py`: derives the surface from the source (public declarations, symbols
   exported by the library objects, `BZ_*` macros, installed programs) and checks that the docs
   cover all of it. `--only-docs` also rejects changes outside `docs/`.
-- `tools/verify.sh`: what every formalization task must leave passing (below), with
-  `check-sources.sh`, `lean_holes.py` and `use-image-packages.sh`.
+- `STYLE.md`, `checks/`: the formalization's rules, and what each task must provide.
+- `tools/verify.sh`: what every formalization task must leave passing (below), in named stages,
+  with the checkers it runs; `tools/check-task.sh`; `tools/use-image-packages.sh`.
 
 ```sh
 python3 projects/bzip2/tools/check_surface.py --only-docs
@@ -50,26 +51,32 @@ the source wins. `docs/surface-area.md` is the cited inventory of that source (A
 format); Joe Tsai's "The bzip2 file format" (github.com/dsnet/compress, `doc/bzip2-format.pdf`)
 is a readable companion.
 
-Rules:
-
-- `spec/` imports Mathlib only. `oracle/` imports Lean core and `Std` only: no Mathlib, no spec,
-  so the executable and the fuzzer's static library stay small. `proofs/` imports both.
-- No `sorry`, `admit` or new `axiom` anywhere. Unfinished proofs are not committed; split the
-  work instead and report what is left as `progress` or `followups`.
-- The oracle's public API is in `oracle/Bzip2/Oracle.lean`. Change it only together with its
-  users (CLI, tests, fuzzer FFI) in the same change.
-- One module per part, named as in the module docs of `Bzip2/Spec.lean`, `Bzip2/Oracle.lean`
-  and `Bzip2/Proofs.lean`; each root imports its parts.
-- Prefer definitions that are easy to reason about in the spec, and fast enough to run on
-  100 MB inputs in the oracle (`ByteArray`, `Array`, `UInt32`; no `List` on hot paths).
-- `upstream/` and `tools/` are not changed by tasks. Builds of the C code happen out of tree.
+The rules are in [STYLE.md](STYLE.md): one module per part in the namespace named after it,
+no shared files between tasks (Lake builds every module by glob, and the root modules are never
+edited), citations of the C source as `file.c:LINE`, no `sorry`, `native_decide`, heartbeat
+overrides or silenced linters. `checks/<task>.lean` states what each task must provide, under
+the names other tasks import.
 
 Build and check, from the repository root:
 
 ```sh
 docker build -t afe-bzip2-lean:dev -f images/bzip2-lean/Dockerfile projects/bzip2   # once per host
-projects/bzip2/tools/verify.sh     # packages, lake build with no sorry, source rules, lake test
+projects/bzip2/tools/verify.sh                 # every stage
+projects/bzip2/tools/verify.sh build style     # only these, after fixing what they reported
+projects/bzip2/tools/check-task.sh spec/rle1   # what that task must provide
 ```
+
+`verify.sh` runs named stages and ends each with `verify: STAGE: ok` or `FAILED`:
+
+| Stage | Checks |
+|---|---|
+| `packages` | the Lake packages are in place (the image's prebuilt copy, or `lake exe cache get`) |
+| `sources` | no `sorry`/`admit`/`axiom`, the import rules, untouched root modules, citations that exist (`check-sources.sh`, `check_citations.py`) |
+| `build` | `lake build`: every module by glob, the `#guard` unit tests included |
+| `style` | STYLE.md's source rules (`lint_style.py`), and no warning from Lean's or Mathlib's linters in our sources |
+| `axioms` | every declaration rests on `propext`, `Classical.choice`, `Quot.sound` only (`lean_audit.py`) |
+| `lint` | environment linters: doc strings, unused arguments and `have`s, tautologies (`lean_audit.py`) |
+| `test` | `lake test`: the golden vectors |
 
 The image carries the Lake dependencies of `lake-manifest.json`, Mathlib's build included,
 read-only in `/opt/bzip2-lake/.lake/packages`. `tools/use-image-packages.sh` (the fleet runs it

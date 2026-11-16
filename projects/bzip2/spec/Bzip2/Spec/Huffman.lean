@@ -5,40 +5,44 @@ import Mathlib.Algebra.BigOperators.Group.List.Basic
 # bzip2: Huffman code lengths, the assigned code, decoding
 
 A table is one code length per symbol of the alphabet (`lens : List Nat`, `lens[i]` the length of
-symbol `i`). In a stream every length is in `1 .. 20` (`decompress.c` lines 337-347 reject any
-`curr` outside that while reading the delta-coded lengths: `RETURN(BZ_DATA_ERROR)`), and the
-alphabet has `alphaSize = nInUse + 2` symbols, at most `BZ_MAX_ALPHA_SIZE = 258`. This module
-does not assume either; the definitions are total on every `List Nat`, and the properties below
-that need `1 ≤ len ≤ 20` say so.
+symbol `i`). In a stream every length is in `1 .. 20`: the decoder rejects any `curr` outside
+that range while reading the lengths (`decompress.c:323-333`). The alphabet has
+`alphaSize = nInUse + 2` symbols (`decompress.c:282-284`), at most `BZ_MAX_ALPHA_SIZE = 258`
+(`bzlib_private.h:115`). The definitions are total on `List Nat`; the C correspondence below
+concerns tables the stream can carry, and the properties requiring legal lengths say so.
 
-## The assigned code (`BZ2_hbAssignCodes`, `upstream/huffman.c` lines 152-163)
+## The assigned code (`huffman.c:152-165`)
 
-`minLen`/`maxLen` are the least and greatest length (C: initial 32 and 0, so on an empty table
-`32` and `0`, `decompress.c` lines 359-364). Codes are handed out by increasing length, within a
-length by increasing symbol index, `vec` incrementing per symbol and doubling between lengths.
-`code lens i` is the number `code[i]`; `codeword lens i` is its `lens[i]` low bits, most
-significant bit first, i.e. the bits the encoder sends (`BZ2_hbAssignCodes` feeds `bsW(s, len,
-code)` in `compress.c`). On an over-subscribed table `code` can need more than `lens[i]` bits;
-`codeword` then keeps only the low ones, as `bsW` does.
+`minLen`/`maxLen` are the least and greatest length (C starts them at 32 and 0, so an empty
+table leaves those values; `decompress.c:337-344`). Codes are handed out by increasing length,
+within a length by increasing symbol index, `vec` incrementing per symbol and doubling between
+lengths (`huffman.c:160-164`). `code lens i` is the number `code[i]`; `codeword lens i` is a
+low-bit representation of that integer in `lens[i]` bits, most significant bit first. When an
+over-subscribed table assigns a value too large for its length, `codeword` truncates that value.
+The C writer passes the full code to `bsW` (`compress.c:562-566`, `compress.c:583-587`), which
+does not mask it to the stated length (`compress.c:73-77`); `codeword` does not model that writer
+on such tables.
 
-## Decoding (`BZ2_hbCreateDecodeTables`, huffman.c 170-203; `GET_MTF_VAL`, decompress.c 74-102)
+## Decoding (`huffman.c:170-200`; `decompress.c:74-102`)
 
-The decoder never checks that the lengths form a complete or even a feasible code. It builds,
-from the table alone, `perm` (symbols by increasing length then index), `limit[n]` and `base[n]`
+The decoder checks the length range but not whether the code is complete or feasible
+(`decompress.c:323-352`). It builds from the table alone `perm` (symbols by increasing length
+then index), `limit[n]` and `base[n]`
 (for `minLen ≤ n ≤ maxLen`, `limit[n]` is the last code value of length `n` *as the decoder
 counts it*, `base[n]` the offset into `perm`), and reads: `zn = minLen` bits as `zvec`, then,
 while `zvec > limit[zn]`, one more bit (`zn++`, `zvec = 2·zvec + bit`). `limit` is 0 outside
-`minLen .. maxLen`. The symbol is `perm[zvec - base[zn]]`. All of this is `Int32` in C; the values
-stay far below overflow (at most `258 · 2^20`), so `Int` models it. Bits are taken MSB first
-(`GET_BITS` in `decompress.c`).
+`minLen .. maxLen` (`huffman.c:180-199`). The symbol is `perm[zvec - base[zn]]`
+(`decompress.c:88-101`). These values use `Int32` in C (`decompress.c:130-137`); for stream
+lengths the table arithmetic stays below `258 · 2^20`, so `Int` models it. Bits are taken MSB
+first (`decompress.c:43-51`).
 
-Outcomes of `decodeSym`, for **every** table:
+Outcomes of `decodeSym`, including incomplete and over-subscribed stream tables:
 
 * `sym s rest`: the symbol and the remaining bits.
 * `dataError` (`BZ_DATA_ERROR`) when
   1. `zn > 20` is reached: the check is made at the top of the loop, i.e. after the 21st bit
-     has been read, so if the input ends right at 20 bits the outcome is `needMoreInput`, not an
-     error (this happens on incomplete tables whose prefix matches no code);
+     has been read (`decompress.c:88-96`). If the input ends right at 20 bits after an unmatched
+     prefix, the outcome is `needMoreInput`;
   2. `zvec - base[zn]` is negative or `≥ 258`. For `zn ≤ maxLen` this cannot happen (by
      induction, `base[zn] ≤ zvec ≤ limit[zn]` gives an index below the number of symbols
      with length `≤ zn`; this is an argument made here, not a mechanised proof); for
@@ -46,16 +50,17 @@ Outcomes of `decodeSym`, for **every** table:
      with `zvec = 0` and the index is `-alphaSize < 0`: an error. (Reaching `zn > maxLen` with
      `zvec = 0` needs `zvec = 0` already at `minLen`, which matches `limit[minLen] ≥ 0`, so in
      practice an incomplete table ends in case 1 or `needMoreInput`; also argued, not proven.)
-* `needMoreInput`: the bits run out before a symbol is complete (`GET_BITS` returns `BZ_OK`
-  with the state saved, `decompress.c` 43-65).
+* `needMoreInput`: the bits run out before a symbol is complete (`GET_BITS` saves the state and
+  returns `BZ_OK`; `decompress.c:43-65`).
 * `staleEntry`: the index is in `[alphaSize, 258)` and C would read a `perm` entry the
-  table did not set (stale memory). By the argument in 2 this does not occur.
+  table did not set (`huffman.c:180-183`, `decompress.c:98-101`). By the argument in 2 this does
+  not occur for stream tables.
 
-Over-subscribed tables (Kraft sum > 1) are accepted by the decoder: `limit[n]` then exceeds the
-codes that fit in `n` bits, so some symbols (the later ones of the longest lengths) are never
-decoded and the shorter ones capture the bits instead. Incomplete tables (Kraft sum < 1) decode
-the assigned codewords correctly, and fail on the unassigned bit strings as above. Out of scope
-here: selectors and group switching (`groupPos`/`groupNo`), which belong to the stream format.
+Over-subscribed tables (Kraft sum > 1) are accepted by the decoder: at some length `limit[n]`
+exceeds the codes that fit in `n` bits, so some assigned codes are never decoded. Incomplete
+tables (Kraft sum < 1) decode the assigned codewords correctly and need more input or fail with
+`BZ_DATA_ERROR` on unassigned prefixes as above. Out of scope here: selectors and group
+switching (`groupPos`/`groupNo`), which belong to the stream format.
 -/
 
 namespace Bzip2.Spec
@@ -84,7 +89,7 @@ def code (lens : Lens) (i : Nat) : Nat :=
   let l := lens.getD i 0
   startAt lens (l - minLen lens) + ((lens.take i).count l)
 
-/-- The bits sent for symbol `i`: the low `lens[i]` bits of `code`, most significant first. -/
+/-- The low `lens[i]` bits of the assigned code, most significant first. -/
 def codeword (lens : Lens) (i : Nat) : List Bool :=
   (List.range (lens.getD i 0)).reverse.map (fun k => (code lens i).testBit k)
 

@@ -1,4 +1,5 @@
 import Mathlib.Data.List.Basic
+import Bzip2.Spec.Rle1
 
 /-!
 # bzip2: the specification

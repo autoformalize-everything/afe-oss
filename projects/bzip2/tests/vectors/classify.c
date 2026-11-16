@@ -1,7 +1,7 @@
 /* Reference driver for the golden vectors: runs the vendored libbz2 over a file exactly as
-   uncompressStream in upstream/bzip2.c does (concatenated streams; garbage after the first
-   stream ignored). Usage: classify IN OUT. Writes the output to OUT and prints one of
-   ok | magic | data | eof | other on stdout. */
+   uncompressStream does (`bzip2.c:435-543`: concatenated streams, `bzip2.c:454-481`; garbage
+   after the first stream ignored, `bzip2.c:536-543`). Usage: classify IN OUT. Writes the
+   output to OUT and prints one of ok | magic | data | eof | other on stdout. */
 #include <stdio.h>
 #include <string.h>
 #include "bzlib.h"

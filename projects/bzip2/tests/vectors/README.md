@@ -8,7 +8,7 @@ from the vendored bzip2 (`../../upstream`, built out of tree), never from the or
 One directory per case.
 
 `decompress/<case>/`
-- `input`: bytes given to `Oracle.decompress` (`bzip2 -d` semantics: concatenated streams).
+- `input`: bytes given to `Oracle.decompress` (`bzip2 -d` semantics: concatenated streams, `bzip2.c:454-481`).
 - exactly one of
   - `expected`: the decompressed bytes, or
   - `error`: one line, the error class: `magic` (`BZ_DATA_ERROR_MAGIC`), `data`

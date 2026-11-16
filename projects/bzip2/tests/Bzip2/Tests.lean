@@ -1,4 +1,6 @@
-import Bzip2.Oracle
+import Bzip2.Oracle.Error
+import Bzip2.Oracle.Compress
+import Bzip2.Oracle.Decompress
 
 /-!
 `lake test`: runs the oracle on the golden vectors in `tests/vectors` (format: see
@@ -15,6 +17,8 @@ mismatch fails; the exit status is non-zero iff something failed.
 Run from the project root (as `lake test` does), or set `BZIP2_VECTORS` to the vectors directory.
 The vendored bzip2 comes from `tests/vectors/build-bzip2.sh` (built out of tree, on first use).
 -/
+
+namespace Bzip2.Tests
 
 open Bzip2.Oracle
 
@@ -127,8 +131,8 @@ def report (counts : Counts) (name : String) : Outcome → IO Counts
     IO.println s!"FAIL {name}: {why}"
     return { counts with failed := counts.failed + 1 }
 
-/-- Runs every decompression and compression case; exit status is non-zero iff one failed. -/
-def main : IO UInt32 := do
+/-- Runs every decompression and compression case; the exit status is non-zero iff one failed. -/
+def run : IO UInt32 := do
   let vectors : System.FilePath :=
     System.FilePath.mk ((← IO.getEnv "BZIP2_VECTORS").getD "tests/vectors")
   let mut counts : Counts := {}
@@ -144,3 +148,8 @@ def main : IO UInt32 := do
     s!"{counts.failed} failed"
   IO.println summary
   return if counts.failed == 0 then 0 else 1
+
+end Bzip2.Tests
+
+/-- Entry point of `lake test`: `Bzip2.Tests.run`. -/
+def main : IO UInt32 := Bzip2.Tests.run

@@ -20,7 +20,8 @@ def read(p):
         return f.read()
 
 def block_bytes(n):
-    # no two equal neighbours, so the initial run-length encoding leaves the length alone
+    # no two equal neighbours, so the initial run-length encoding (`bzlib.c:260-283`; runs of
+    # 1-3 are copied as they are, `bzlib.c:223-247`) leaves the length alone
     return bytes((i * 37 + i // 256) % 256 for i in range(n))
 
 # Raw inputs (the compression cases use these; the decompression cases use their bzip2 -9 form).
@@ -38,7 +39,7 @@ raw = {
 for i in (1, 2, 3):
     raw[f"sample{i}"] = read(os.path.join(upstream, f"sample{i}.ref"))
 
-# nblockMAX = 100000 * level - 19 (bzlib.c:194): a level-1 block holds 99981 bytes.
+# nblockMAX = 100000 * level - 19 (`bzlib.c:194`): a level-1 block holds 99981 bytes.
 level1_limit = 99981
 
 # (name, compressed input, level) for decompression: valid streams
@@ -55,7 +56,7 @@ bad = {
     "trunc-header": stream[:3],
     "trunc-block": stream[:len(stream) // 2],
     "trunc-footer": stream[:-2],
-    "flip-block-crc": stream[:10] + bytes([stream[10] ^ 0x01]) + stream[11:],  # after "BZh9" + block magic
+    "flip-block-crc": stream[:10] + bytes([stream[10] ^ 0x01]) + stream[11:],  # CRC at byte 10: 4-byte header + 6-byte block magic (`compress.c:624-637`)
     "bad-magic": b"XYZ9" + stream[4:],
     "level0": b"BZh0" + stream[4:],
     "zero-length": b"",

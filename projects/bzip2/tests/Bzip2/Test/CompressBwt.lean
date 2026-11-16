@@ -45,7 +45,7 @@ def agrees : Bool :=
 -- "banana": rotations sorted are abanan, anaban, ananab, banana, nabana, nanaba.
 #guard bwt "banana".toUTF8 == ("nnbaaa".toUTF8, 3)
 
--- Bytes are compared unsigned, as in C.
+-- Bytes are compared unsigned, as in `blocksort.c:354-362`.
 #guard bwt (ByteArray.mk #[0x80, 0x01]) == (ByteArray.mk #[0x80, 0x01], 1)
 
 -- A periodic block: `origPtr` is the first row equal to rotation 0.

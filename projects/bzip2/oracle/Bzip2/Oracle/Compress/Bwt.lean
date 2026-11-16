@@ -1,18 +1,20 @@
 /-!
 # Oracle: forward Burrows-Wheeler transform
 
-`Bzip2.Oracle.Compress.Bwt.bwt block` returns the last column of the sorted rotations of `block`
-(what `BZ2_blockSort` leaves in `ptr` and `compress.c` turns into `block[ptr[i]-1]`, see
-`blocksort.c:1031-1089`) and `origPtr`, the row of rotation 0 (`blocksort.c:1084-1088`).
+`Bzip2.Oracle.Compress.Bwt.bwt block` returns the last column of the sorted rotations of `block`.
+`BZ2_blockSort` leaves the sorted order in `ptr` (`blocksort.c:1025-1029`); compression reads
+the preceding byte for each entry (`compress.c:163-167`). It also returns `origPtr`, the row of
+rotation 0 (`blocksort.c:1083-1088`).
 
-Algorithm: prefix doubling on cyclic shifts, each round two stable counting sorts, so
-O(n log n) in the worst case, with no comparison sorts; runs of equal bytes need ⌈log₂ n⌉ rounds.
+Algorithm: prefix doubling on cyclic shifts, shifting the current order and then using a stable
+counting sort on the first key each round. It takes O(n log n) time in the worst case, with no
+comparison sorts; runs of equal bytes need ⌈log₂ n⌉ rounds.
 
-Tie-breaking: rotations are compared as byte strings (unsigned bytes, as in C). Equal rotations
-occur exactly when `block` is periodic; they are interchangeable in the output column. `origPtr`
-is the row of the *first* of the rows equal to rotation 0, i.e. the smallest row whose rotation
-equals rotation 0. This need not match the C library's `origPtr` on periodic blocks (that is
-`oracle/compress/byte-exact`); the inverse transform recovers `block` either way.
+Tie-breaking: rotations are compared as byte strings (unsigned bytes, as in `blocksort.c:354-362`).
+Equal rotations occur exactly when `block` is periodic; they are interchangeable in the output
+column. `origPtr` is the first row whose rotation equals rotation 0. This may differ from the C
+library's `origPtr` on periodic blocks, which is the remit of `oracle/compress/byte-exact`.
+The inverse transform recovers `block` either way.
 -/
 
 namespace Bzip2.Oracle.Compress.Bwt

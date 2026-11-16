@@ -2,9 +2,19 @@
 # Oracle: code lengths, tables and selectors
 
 Chooses the Huffman coding tables and selectors of one block as `sendMTFValues` does
-(`upstream/compress.c`), with `BZ2_hbMakeCodeLengths` and `BZ2_hbAssignCodes`
-(`upstream/huffman.c`). All arithmetic is the C's (integer division, heap tie order).
-The input is the block's MTF/RLE2 symbol sequence, ending with EOB.
+(`compress.c:273-277` table count, `compress.c:283-315` initial partition, `compress.c:322-451`
+refinement and selectors, `compress.c:480-492` codes), with `BZ2_hbMakeCodeLengths`
+(`huffman.c:63-148`) and `BZ2_hbAssignCodes` (`huffman.c:152-166`). All arithmetic is the C's
+(integer division, heap tie order). The input is the block's MTF/RLE2 symbol sequence, ending
+with EOB.
+
+Choices: counts, lengths and codes are `Nat`, the C's `Int32`/`UChar` values never overflow
+(weights stay below `2^31` for blocks of at most 900000 symbols). `parent[k] = -1` is stored as
+`0`, as node numbers start at 1. The C's fast path for six tables and full groups
+(`compress.c:359-386`, `compress.c:410-427`) computes the same costs and counts as the slow
+path (`compress.c:388-393`, `compress.c:429-432`; each cost is at most `50 * 17`, below the
+16-bit packing limit), so only the slow path is written. The C's `AssertH` checks
+(`compress.c:272`, `compress.c:455-459`, `compress.c:488-489`) are preconditions here.
 -/
 
 namespace Bzip2.Oracle.Compress.Huffman
@@ -16,16 +26,18 @@ def numIters : Nat := 4
 /-- `BZ_N_GROUPS`: maximum number of coding tables (`bzlib_private.h:121`). -/
 def numGroups : Nat := 6
 
-/-- The maximum code length passed by `sendMTFValues` (`compress.c`). -/
+/-- The maximum code length passed to `BZ2_hbMakeCodeLengths` by `sendMTFValues`
+(`compress.c:447-451`). -/
 def maxCodeLen : Nat := 17
 
-/-- Heap state of `BZ2_hbMakeCodeLengths`; arrays are indexed from 1, entry 0 a sentinel. -/
+/-- Heap state of `BZ2_hbMakeCodeLengths` (`huffman.c:75-77`); arrays are indexed from 1,
+entry 0 a sentinel. -/
 private structure HS where
   heap : Array Nat
   weight : Array Nat
   nHeap : Nat
 
-/-- `UPHEAP(z)`. -/
+/-- `UPHEAP(z)` (`huffman.c:33-42`). -/
 private def upHeap (heap weight : Array Nat) (z : Nat) : Array Nat := Id.run do
   let mut heap := heap
   let mut zz := z
@@ -35,7 +47,7 @@ private def upHeap (heap weight : Array Nat) (z : Nat) : Array Nat := Id.run do
     zz := zz / 2
   heap.set! zz tmp
 
-/-- `DOWNHEAP(z)`. -/
+/-- `DOWNHEAP(z)` (`huffman.c:44-59`). -/
 private def downHeap (heap weight : Array Nat) (nHeap z : Nat) : Array Nat := Id.run do
   let mut heap := heap
   let mut zz := z
@@ -49,8 +61,11 @@ private def downHeap (heap weight : Array Nat) (nHeap z : Nat) : Array Nat := Id
     zz := yy
   heap.set! zz tmp
 
-/-- `BZ2_hbMakeCodeLengths`: code lengths for `freq` (zero counts treated as 1), at most `maxLen`
-by repeatedly halving the weights. Requires `0 < freq.size ≤ 258`. -/
+/-- `BZ2_hbMakeCodeLengths` (`huffman.c:63-148`): code lengths for `freq`, with zero counts
+treated as 1 (`huffman.c:79-80`). Nodes are merged smallest two first, with the C's heap tie
+order (`huffman.c:91-110`); while some length exceeds `maxLen` (`huffman.c:114-123`) the weights
+are replaced by `1 + w / 2` and the tree rebuilt (`huffman.c:142-146`). Requires
+`0 < freq.size ≤ 258`. -/
 partial def makeCodeLengths (freq : Array Nat) (maxLen : Nat) : Array Nat := Id.run do
   let alphaSize := freq.size
   let mut weight : Array Nat := Array.replicate (alphaSize * 2 + 2) 0
@@ -100,7 +115,8 @@ partial def makeCodeLengths (freq : Array Nat) (maxLen : Nat) : Array Nat := Id.
       weight := weight.set! i ((1 + (weight[i]! >>> 8) / 2) <<< 8)
   return len
 
-/-- `BZ2_hbAssignCodes`. -/
+/-- `BZ2_hbAssignCodes` (`huffman.c:152-166`): canonical codes for the code lengths `length`,
+by increasing length and then symbol (`huffman.c:160-165`). -/
 def assignCodes (length : Array Nat) (minLen maxLen : Nat) : Array Nat := Id.run do
   let mut code : Array Nat := Array.replicate length.size 0
   let mut vec := 0
@@ -112,7 +128,8 @@ def assignCodes (length : Array Nat) (minLen maxLen : Nat) : Array Nat := Id.run
     vec := vec <<< 1
   return code
 
-/-- The coding tables and selectors of one block. -/
+/-- The coding tables and selectors of one block, as `sendMTFValues` leaves them in `s->len`,
+`s->code` and `s->selector` (`compress.c:404`, `compress.c:447-451`, `compress.c:490-491`). -/
 structure Tables where
   /-- `nGroups`, 2 to 6. -/
   nGroups : Nat
@@ -124,12 +141,15 @@ structure Tables where
   selector : Array Nat
   deriving Repr, BEq, Inhabited
 
-/-- Number of tables for `nMTF` symbols (`sendMTFValues`). -/
+/-- Number of tables for `nMTF` symbols (`compress.c:273-277`). -/
 def numTables (nMTF : Nat) : Nat :=
   if nMTF < 200 then 2 else if nMTF < 600 then 3 else if nMTF < 1200 then 4
   else if nMTF < 2400 then 5 else 6
 
-/-- The initial tables: `len[t][v]` is 0 inside table `t`'s symbol range, 15 elsewhere. -/
+/-- The initial tables (`compress.c:283-315`): `len[t][v]` is 0 (`BZ_LESSER_ICOST`) inside table
+`t`'s symbol range and 15 (`BZ_GREATER_ICOST`) elsewhere (`compress.c:309-312`). Ranges are
+cut by cumulative frequency, `remF / nPart` per range (`compress.c:292-300`), giving back the
+last symbol on odd steps (`compress.c:302-306`). -/
 private def initialLens (mtfFreq : Array Nat) (alphaSize nMTF nGroups : Nat) :
     Array (Array Nat) := Id.run do
   let mut len : Array (Array Nat) := Array.replicate nGroups (Array.replicate alphaSize 15)
@@ -155,8 +175,12 @@ private def initialLens (mtfFreq : Array Nat) (alphaSize nMTF nGroups : Nat) :
   return len
 
 /-- Chooses tables and selectors for `mtfv` (the block's symbols, EOB last) over an alphabet
-of `alphaSize = nInUse + 2` symbols, as `sendMTFValues` does. Requires `mtfv` nonempty with
-all symbols `< alphaSize`. -/
+of `alphaSize = nInUse + 2` symbols, as `sendMTFValues` does: `numIters` passes
+(`compress.c:322`) each give every group of 50 symbols to the cheapest table, the first of equal
+cost (`compress.c:399-405`), count symbol frequencies per table (`compress.c:410-432`) and
+rebuild the lengths from them (`compress.c:447-451`); finally codes are assigned from the
+lengths' range (`compress.c:480-492`). Requires `mtfv` nonempty with all symbols
+`< alphaSize`. -/
 def choose (mtfv : Array UInt16) (alphaSize : Nat) : Tables := Id.run do
   let nMTF := mtfv.size
   let mut mtfFreq : Array Nat := Array.replicate alphaSize 0

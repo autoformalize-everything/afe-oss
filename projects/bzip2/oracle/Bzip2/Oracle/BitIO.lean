@@ -9,9 +9,9 @@ byte 0, as in bzip2's `GET_BITS` (`decompress.c:43-65`: a byte is shifted into t
 is or-ed in just below the live bits), and `bsFinishWrite` (`compress.c:46-55`: the last byte is
 padded with zero bits). Nothing here is specific to bzip2 beyond that bit order.
 
-Choices: `readBits` and `writeBits` take any `n ≤ 32` (the C code never asks for more than 24);
-`readBits` with `n > 32` is `Error.param`, `writeBits` clamps `n` to 32. A short read is
-`Error.eof` and leaves the reader unchanged. `writeBits` keeps only the low `n` bits of its
+Choices: `readBits` and `writeBits` take any `n ≤ 32`; `readBits` with
+`n > 32` is `Error.param`, `writeBits` clamps `n` to 32. A short read is `Error.eof` and leaves
+the reader unchanged. `writeBits` keeps only the low `n` bits of its
 argument. The position is a `Nat` of bits, so inputs of any size are fine.
 
 Neither side allocates per bit: reads gather whole byte fragments into a `UInt64`, writes

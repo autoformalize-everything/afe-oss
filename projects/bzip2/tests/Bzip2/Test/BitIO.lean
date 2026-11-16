@@ -5,6 +5,8 @@ the end, and write-then-read roundtrips. -/
 
 open Bzip2.Oracle Bzip2.Oracle.BitIO
 
+namespace Bzip2.Test.BitIO
+
 /-- The bytes `l` as a `ByteArray`. -/
 def bytes (l : List Nat) : ByteArray := ⟨(l.map (·.toUInt8)).toArray⟩
 
@@ -108,3 +110,5 @@ def roundtrips (items : List (Nat × UInt32)) : Bool :=
 #guard roundtrips [(32, 0xDEADBEEF), (1, 1), (31, 0x7FFFFFFF), (7, 0x55)]
 #guard (writeAll (randomItems 3000)).size ==
   ((randomItems 3000).foldl (fun a (n, _) => a + n) 0 + 7) / 8
+
+end Bzip2.Test.BitIO

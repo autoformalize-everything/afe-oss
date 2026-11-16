@@ -1,4 +1,5 @@
 import Mathlib.Data.List.Basic
+import Bzip2.Spec.Crc
 
 /-!
 # bzip2: the specification
@@ -21,6 +22,7 @@ Each part goes in its own module under `Bzip2.Spec`, imported here:
 Definitions here favour clarity over speed; they need not be executable. They import Mathlib
 only, never `Bzip2.Oracle`.
 -/
+
 
 namespace Bzip2.Spec
 

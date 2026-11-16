@@ -1,3 +1,5 @@
+import Bzip2.Oracle.Crc
+
 /-!
 # bzip2: the oracle
 

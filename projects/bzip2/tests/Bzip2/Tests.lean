@@ -90,17 +90,19 @@ def checkCompress (vectors : System.FilePath) (input : ByteArray) (level : Nat) 
     if isUnimplemented e then return .skip "compress unimplemented"
     else return .fail s!"level {level}: compress failed with {errorClass e}"
   | .ok z =>
+    let mut oracleUnchecked := false
     match decompress z with
     | .error e =>
-      if !isUnimplemented e then
-        return .fail s!"level {level}: oracle cannot decompress its own output: {errorClass e}"
+      if isUnimplemented e then oracleUnchecked := true
+      else return .fail s!"level {level}: oracle cannot decompress its own output: {errorClass e}"
     | .ok back =>
       if back != input then return .fail s!"level {level}: oracle roundtrip differs"
     match ← vendoredDecompress (← vendoredBzip2 vectors) z with
     | .error msg => return .fail s!"level {level}: {msg}"
     | .ok back =>
-      if back == input then return .pass
-      else return .fail s!"level {level}: vendored bzip2 -d output differs"
+      if back != input then return .fail s!"level {level}: vendored bzip2 -d output differs"
+      else if oracleUnchecked then return .skip "decompress unimplemented (oracle roundtrip unchecked)"
+      else return .pass
 
 def caseDirs (dir : System.FilePath) : IO (Array System.FilePath) := do
   let entries ← dir.readDir

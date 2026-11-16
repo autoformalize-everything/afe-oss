@@ -1,3 +1,5 @@
+import Bzip2.Oracle.Compress.Mtf
+
 /-!
 # bzip2: the oracle
 
@@ -14,6 +16,7 @@ imported here. The functions below are the oracle's public API; the CLI, the tes
 fuzzer's FFI depend on these names and types. Until a part exists, they return
 `.unimplemented`.
 -/
+
 
 namespace Bzip2.Oracle
 

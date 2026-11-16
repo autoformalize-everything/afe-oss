@@ -18,16 +18,19 @@ The vendored bzip2 comes from `tests/vectors/build-bzip2.sh` (built out of tree,
 
 open Bzip2.Oracle
 
+/-- The result of one check: passed, skipped (with the reason) or failed (with the reason). -/
 inductive Outcome where
   | pass
   | skip (why : String)
   | fail (why : String)
 
+/-- Running totals of passed, skipped and failed checks. -/
 structure Counts where
   passed : Nat := 0
   skipped : Nat := 0
   failed : Nat := 0
 
+/-- The class name used in `error` files for an oracle `Error`. -/
 def errorClass : Error → String
   | .magic => "magic"
   | .data _ => "data"
@@ -35,6 +38,7 @@ def errorClass : Error → String
   | .param _ => "param"
   | .unimplemented _ => "unimplemented"
 
+/-- Whether an oracle error is `Error.unimplemented`, which makes a check skipped. -/
 def isUnimplemented : Error → Bool
   | .unimplemented _ => true
   | _ => false
@@ -105,11 +109,13 @@ def checkCompress (vectors : System.FilePath) (input : ByteArray) (level : Nat) 
         return .skip "decompress unimplemented (oracle roundtrip unchecked)"
       else return .pass
 
+/-- The entries of `dir`, sorted by name. -/
 def caseDirs (dir : System.FilePath) : IO (Array System.FilePath) := do
   let entries ← dir.readDir
   let names : Array String := entries.map (·.fileName) |>.qsort (· < ·)
   return names.map fun (n : String) => dir / n
 
+/-- Prints the outcome of check `name` and adds it to `counts`. -/
 def report (counts : Counts) (name : String) : Outcome → IO Counts
   | .pass => do
     IO.println s!"PASS {name}"
@@ -121,6 +127,7 @@ def report (counts : Counts) (name : String) : Outcome → IO Counts
     IO.println s!"FAIL {name}: {why}"
     return { counts with failed := counts.failed + 1 }
 
+/-- Runs every decompression and compression case; exit status is non-zero iff one failed. -/
 def main : IO UInt32 := do
   let vectors : System.FilePath :=
     System.FilePath.mk ((← IO.getEnv "BZIP2_VECTORS").getD "tests/vectors")

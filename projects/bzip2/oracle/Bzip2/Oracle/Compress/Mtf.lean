@@ -1,7 +1,7 @@
 /-!
 # Oracle: symbol map, move-to-front and RUNA/RUNB encoding
 
-`makeMaps_e` and `generateMTFValues` of `upstream/compress.c` (lines 106-115, 120-231).
+`makeMaps_e` and `generateMTFValues` of `compress.c:106-115` and `compress.c:120-231`.
 
 Input: the BWT output (`block[ptr[i]-1]` for `i = 0 ..`, i.e. the last column of the sorted
 rotations; the caller does the `ptr` indirection) and the symbol map `inUse` (256 flags,
@@ -10,10 +10,10 @@ frequencies (`s->mtfFreq`, `nInUse + 2` entries).
 
 Symbols: `RUNA = 0`, `RUNB = 1`, MTF index `j ≥ 1` as `j + 1`, `EOB = nInUse + 1`. A repeat of the
 front byte is counted in `zPend` and written as a bijective base-2 number, least significant
-digit first (lines 174-188, 212-226).
+digit first (`compress.c:170-188`, `compress.c:212-226`).
 -/
 
-namespace Bzip2.Oracle.Compress
+namespace Bzip2.Oracle.Compress.Mtf
 
 /-- Result of `generateMTFValues`. -/
 structure MtfResult where
@@ -25,8 +25,8 @@ structure MtfResult where
   nInUse : Nat
   deriving Repr, BEq, Inhabited
 
-/-- `s->inUse` for a block: which byte values occur in it (set in `bzlib.c`: `prepare_new_block`
-line 124, `add_pair_to_block` lines 223, 238). -/
+/-- `s->inUse` for a block: which byte values occur in it (`bzlib.c:124`, `bzlib.c:223`,
+`bzlib.c:238`). -/
 def inUseOf (block : ByteArray) : Array Bool := Id.run do
   let mut u := Array.replicate 256 false
   for b in block do
@@ -43,7 +43,7 @@ def makeMaps (inUse : Array Bool) : Array UInt8 × Nat := Id.run do
       n := n + 1
   return (m, n)
 
-/-- Emits the pending zero run `zPend > 0` as RUNA/RUNB digits (lines 174-188). -/
+/-- Emits the pending zero run `zPend > 0` as RUNA/RUNB digits (`compress.c:174-186`). -/
 private def flushRun (syms : Array UInt16) (freq : Array Nat) (zPend : Nat) :
     Array UInt16 × Array Nat := Id.run do
   let mut syms := syms
@@ -90,4 +90,4 @@ def generateMtf (bwt : ByteArray) (inUse : Array Bool) : MtfResult := Id.run do
   freq := freq.modify eob (· + 1)
   return { syms, freq, nInUse }
 
-end Bzip2.Oracle.Compress
+end Bzip2.Oracle.Compress.Mtf

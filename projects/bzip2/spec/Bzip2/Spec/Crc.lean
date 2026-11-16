@@ -6,11 +6,15 @@ import Mathlib.Data.BitVec
 
 References: `upstream/crctable.c` (the table, polynomial 0x04C11DB7), `BZ_UPDATE_CRC`,
 `BZ_INITIALISE_CRC`, `BZ_FINALISE_CRC` in `upstream/bzlib_private.h`, and `combinedCRC` in
-`upstream/compress.c` (lines 606–608) and `upstream/decompress.c`.
+`upstream/compress.c` (lines 606–608; the compressor's combination). The decompressor combines
+and compares in `BZ2_bzDecompress`, `upstream/bzlib.c` lines 825–847 (`decompress.c`
+lines 601–609 only read the stored trailer CRC). The block CRC covers the original bytes:
+the compressor updates it per input byte in `add_pair_to_block` (`bzlib.c` lines 217–221) and
+the `ADD_CHAR_TO_BLOCK` macro (`bzlib.c` lines 263–267), before the RLE1 run is coded.
 
 The type is `BitVec 32`, not `UInt32`: `BitVec` has the full library of `bv_decide`/`simp`
 lemmas (`xor`, shifts, `rotateLeft`, `getLsbD`), and later proofs over the spec need them;
-`UInt32` is the oracle's business. The CRC is bitwise over `List UInt8`-free `List (BitVec 8)`
+`UInt32` is the oracle's business. The CRC is bitwise over `List (BitVec 8)`, with
 no table, so it states what the table computes.
 -/
 

@@ -6,6 +6,21 @@ testDriver = "bzip2_tests"
 [leanOptions]
 autoImplicit = false
 relaxedAutoImplicit = false
+# Mathlib's style linters, where Mathlib is imported (spec, proofs); `weak.`: ignored elsewhere.
+# tools/verify.sh fails on any warning they, or Lean's own linters, report (STYLE.md).
+weak.linter.style.longLine = true
+weak.linter.style.cdot = true
+weak.linter.style.lambdaSyntax = true
+weak.linter.style.dollarSyntax = true
+weak.linter.style.multiGoal = true
+weak.linter.style.refine = true
+weak.linter.style.cases = true
+weak.linter.style.induction = true
+weak.linter.style.missingEnd = true
+weak.linter.style.setOption = true
+weak.linter.style.openClassical = true
+weak.linter.oldObtain = true
+weak.linter.flexible = true
 
 [[require]]
 name = "mathlib"

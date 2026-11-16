@@ -1,3 +1,5 @@
+import Bzip2.Oracle.Compress.Bwt
+
 /-!
 # bzip2: the oracle
 

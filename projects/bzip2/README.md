@@ -56,10 +56,20 @@ Rules:
   so the executable and the fuzzer's static library stay small. `proofs/` imports both.
 - No `sorry`, `admit` or new `axiom` anywhere. Unfinished proofs are not committed; split the
   work instead and report what is left as `progress` or `followups`.
-- The oracle's public API is in `oracle/Bzip2/Oracle.lean`. Change it only together with its
-  users (CLI, tests, fuzzer FFI) in the same change.
 - One module per part, named as in the module docs of `Bzip2/Spec.lean`, `Bzip2/Oracle.lean`
-  and `Bzip2/Proofs.lean`; each root imports its parts.
+  and `Bzip2/Proofs.lean`. Lake builds every module under each root by glob, so a part is added
+  by adding its file, and a module imports the parts it needs directly
+  (`import Bzip2.Spec.Crc`). **Do not edit the three root files** or any other file your task
+  does not own: files several tasks touch conflict as soon as one of them merges, and
+  `tools/check-sources.sh` rejects changes to the roots.
+- The oracle's public API: `Error` in `oracle/Bzip2/Oracle/Error.lean` (fixed; parts import it
+  for the error type), `decompressStream` and `decompress` in `Oracle/Decompress.lean` (owned by
+  task `oracle/decompress/stream`), `compress` in `Oracle/Compress.lean` (owned by
+  `oracle/compress/stream`). `Bzip2.Oracle` re-exports them for the CLI, tests and fuzzer FFI.
+  Change a signature only together with its users, in the same change.
+- Unit tests of a part go in their own module, `tests/Bzip2/Test/<Part>.lean`, as `#guard` and
+  `example`: building them runs them. `tests/Bzip2/Tests.lean`, the golden-vector runner behind
+  `lake test`, belongs to task `tests/golden`.
 - Prefer definitions that are easy to reason about in the spec, and fast enough to run on
   100 MB inputs in the oracle (`ByteArray`, `Array`, `UInt32`; no `List` on hot paths).
 - `upstream/` and `tools/` are not changed by tasks. Builds of the C code happen out of tree.

@@ -23,11 +23,16 @@ the sorted suffix array for the entry `ptr[i] == 0` (`blocksort.c:1083-1088`), a
   the sorted list, and *every* position among them satisfies `IsOrigPtr b p`. The definition
   does not say which one bzip2's compressor picks. In C, the suffix sort breaks ties between equal
   rotations by an order that is an artifact of the algorithm (`blocksort.c`'s fallback/main
-  sorts, with the block doubled and a work budget), and the first `i` with `ptr[i] == 0` is
+  sorts: `mainSort` copies the first `BZ_N_OVERSHOOT` bytes after the block end,
+  `blocksort.c:794-798`, and falls back to `fallbackSort`, whose refinement depth doubles,
+  `blocksort.c:259-312`, when its work budget runs out), and the first `i` with `ptr[i] == 0` is
   chosen. That exact choice is `oracle/compress/byte-exact`'s concern, not the spec's.
 * Decoding is correct for every such position (`InverseCorrect`), because rotations at those
   positions are equal strings, and `decodeBwt` never inspects which one it was given beyond that.
-* Note the decoder's `origPtr` check is only `0 ≤ origPtr < nblock` (`decompress.c:497`); a pair
+* The decoder checks `origPtr` twice: first `0 ≤ origPtr ≤ 10 + 100000 * blockSize100k`
+  (`decompress.c:261-264`), then, once `nblock` is known, `origPtr < nblock`
+  (`decompress.c:497-498`). The effective range condition is `0 ≤ origPtr < nblock`, the
+  earlier upper bound being redundant given a valid `nblock`. A pair
   `(last column, origPtr)` that is not the transform of any block still decodes to *some* block
   (`decodeBwt` is total on valid inputs), it just does not satisfy `IsBwtPair`.
 

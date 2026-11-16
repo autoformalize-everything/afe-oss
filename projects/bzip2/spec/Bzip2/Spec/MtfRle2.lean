@@ -21,24 +21,26 @@ MTF index 0 never appears as a symbol: a repeat of the byte at the front is a ze
 
 ## Decoding failures
 
-`decode` returns `none` exactly where the C code returns `BZ_DATA_ERROR` in this part
-(`decompress.c`), and in one more case that is not a data error in C:
+`decode` returns `.error .dataError` for these `BZ_DATA_ERROR` checks in
+`decompress.c`:
 
 1. `nInUse = 0` (line 283): `used = []`.
 2. A run digit (RUNA/RUNB) is read when `N ≥ 2 * 1024 * 1024`, `N` being the place value
-   `2^k` of that digit, i.e. the run has more than 21 digits (line 392). The check is made
+   `2^k` of that digit, i.e. the run has more than 21 digits (line 396). The check is made
    before the digit is used, so it also rejects a 22-digit run that would otherwise end.
 3. A run would push the block length beyond `nblockMAX = 100000 * level` (lines 410, 417; C
    checks each byte, which is the same as checking `length + run > nblockMAX`).
 4. An MTF symbol is read when the block already has `nblockMAX` bytes (line 427).
 
 Not modelled here, because they concern other parts: `origPtr` outside `0 .. nblock - 1`
-(line 495, in `Bzip2.Spec.Bwt`/`Format`), Huffman decoding errors, running out of selectors.
+(lines 497-498, in `Bzip2.Spec.Bwt`/`Format`), Huffman decoding errors, running out of selectors.
 The symbol list is what Huffman decoding yields, whose alphabet is `0 .. nInUse + 1`, so a
-symbol `> EOB` cannot occur in C; `decode` returns `none` on it (unreachable case).
-If the list has no `EOB`, C would be reading past the end of the input
-(`BZ_UNEXPECTED_EOF`, not `BZ_DATA_ERROR`); `decode` returns `none` there too. Symbols after
-the first `EOB` are ignored, as the decoder stops at `EOB`.
+symbol `> EOB` cannot occur in C; `decode` returns `.error .dataError` on it (unreachable case).
+If decoding reaches the end of the supplied list before `EOB`, it returns
+`.error .needMoreInput`.
+`GET_BITS` in `decompress.c` (lines 43-65) returns `BZ_OK` when the input buffer is empty,
+allowing `BZ2_decompress` to resume when more input arrives. Symbols after the first `EOB` are
+ignored, as the decoder stops at `EOB`.
 -/
 
 namespace Bzip2.Spec
@@ -104,39 +106,48 @@ def encode (block : List UInt8) : List Nat :=
 /-- `nblockMAX`, the longest block for block size `level` (`100000 * s->blockSize100k`). -/
 def maxBlock (level : Nat) : Nat := 100000 * level
 
-/-- Place values of run digits must stay below this (`2*1024*1024`, decompress.c:392). -/
+/-- Place values of run digits must stay below this (`2*1024*1024`, decompress.c:396). -/
 def runLimit : Nat := 2 * 1024 * 1024
 
-/-- Append `es` copies of the front of `order` (`none` if that exceeds `limit`). -/
+/-- A symbol stream can be malformed or can end before the decoder reaches `EOB`. -/
+inductive DecodeError where
+  | dataError
+  | needMoreInput
+  deriving DecidableEq, Repr
+
+/-- Append `es` copies of the front of `order` (`.dataError` if that exceeds `limit`). -/
 def flushRun (limit : Nat) (order : List UInt8) (acc : List UInt8) (es : Nat) :
-    Option (List UInt8) :=
-  if es = 0 then some acc
+    Except DecodeError (List UInt8) :=
+  if es = 0 then .ok acc
   else match order with
-    | [] => none
-    | u :: _ => if acc.length + es ≤ limit then some (acc ++ List.replicate es u) else none
+    | [] => .error .dataError
+    | u :: _ => if acc.length + es ≤ limit then .ok (acc ++ List.replicate es u)
+                 else .error .dataError
 
 /-- The decoding loop. `acc` is the block so far, `es`/`N` the value and next place value of
 the run being read (`es = 0`, `N = 1` when none). `eobSym` is `EOB`. -/
 def decodeAux (limit eobSym : Nat) (order : List UInt8) (acc : List UInt8) (es N : Nat) :
-    List Nat → Option (List UInt8)
-  | [] => none
+    List Nat → Except DecodeError (List UInt8)
+  | [] => .error .needMoreInput
   | s :: ss =>
     if s = RUNA ∨ s = RUNB then
-      if N ≥ runLimit then none
+      if N ≥ runLimit then .error .dataError
       else decodeAux limit eobSym order acc (es + (s + 1) * N) (2 * N) ss
     else do
       let acc ← flushRun limit order acc es
-      if s = eobSym then some acc
-      else if limit ≤ acc.length then none
+      if s = eobSym then .ok acc
+      else if limit ≤ acc.length then .error .dataError
       else if h : s - 1 < order.length then
         let b := order[s - 1]
         decodeAux limit eobSym (b :: order.eraseIdx (s - 1)) (acc ++ [b]) 0 1 ss
-      else none
+      else .error .dataError
 
 /-- Decode symbols (up to `EOB`) to the block, for the used bytes `used` (increasing) and block
-size `level`; `none` where the C library gives `BZ_DATA_ERROR` (see the module doc). -/
-def decode (level : Nat) (used : List UInt8) (syms : List Nat) : Option (List UInt8) :=
-  if used = [] then none
+size `level`; `.dataError` corresponds to the checks above, while `.needMoreInput` means the
+symbol list ended before `EOB` (see the module doc). -/
+def decode (level : Nat) (used : List UInt8) (syms : List Nat) :
+    Except DecodeError (List UInt8) :=
+  if used = [] then .error .dataError
   else decodeAux (maxBlock level) (used.length + 1) used [] 0 1 syms
 
 /-! ### Examples -/
@@ -159,19 +170,19 @@ example : runDigits 6 = [RUNB, RUNB] := by decide +kernel
 
 /-- Runs of 1 to 6 zeros decode back (one used byte, level 1). -/
 example : ∀ n ∈ [1, 2, 3, 4, 5, 6],
-    decode 1 [7] (runDigits n ++ [2]) = some (List.replicate n 7) := by decide +kernel
+    decode 1 [7] (runDigits n ++ [2]) = .ok (List.replicate n 7) := by decide +kernel
 
 /-- "banana": used bytes a, b, n (alphabet 5, `EOB = 4`). MTF list starts `a b n`:
 b → 1, a → 1, n → 2, a → 1, n → 1, a → 1; symbols are the indices plus one. -/
 example : encode "banana".toUTF8.toList = [2, 2, 3, 2, 2, 2, 4] := by decide +kernel
-example : decode 1 [97, 98, 110] [2, 2, 3, 2, 2, 2, 4] = some "banana".toUTF8.toList := by
+example : decode 1 [97, 98, 110] [2, 2, 3, 2, 2, 2, 4] = .ok "banana".toUTF8.toList := by
   decide +kernel
 
-/-- Failures: no used byte, no `EOB`, a 22-digit run, a run longer than the block. -/
-example : decode 1 [] [1] = none := by decide +kernel
-example : decode 1 [7] [0] = none := by decide +kernel
-example : decode 1 [7] (List.replicate 22 RUNA ++ [2]) = none := by decide +kernel
-example : decode 1 [7] (List.replicate 17 RUNB ++ [2]) = none := by decide +kernel
+/-- Failures: no used byte, an incomplete sequence, a 22-digit run, and an oversized run. -/
+example : decode 1 [] [1] = .error .dataError := by decide +kernel
+example : decode 1 [7] [0] = .error .needMoreInput := by decide +kernel
+example : decode 1 [7] (List.replicate 22 RUNA ++ [2]) = .error .dataError := by decide +kernel
+example : decode 1 [7] (List.replicate 17 RUNB ++ [2]) = .error .dataError := by decide +kernel
 
 end MtfRle2
 

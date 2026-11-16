@@ -1,5 +1,6 @@
 import Mathlib.Data.List.Basic
 import Bzip2.Spec.MtfRle2
+import Bzip2.Spec.Huffman
 
 /-!
 # bzip2: the specification

@@ -4,17 +4,25 @@ import Bzip2.Oracle.Error
 # Oracle: bit reader and writer
 
 Bits over `ByteArray`, most significant bit first: the first bit read or written is bit 7 of
-byte 0, as in bzip2's `GET_BITS` (`decompress.c`) and `bsW` (`compress.c`). Nothing here is
-specific to bzip2 beyond that bit order.
+byte 0, as in bzip2's `GET_BITS` (`decompress.c:43-65`: a byte is shifted into the low end of
+`bsBuff`, a value is taken from the top of the live bits) and `bsW` (`compress.c:73-78`: a value
+is or-ed in just below the live bits), and `bsFinishWrite` (`compress.c:46-55`: the last byte is
+padded with zero bits). Nothing here is specific to bzip2 beyond that bit order.
+
+Choices: `readBits` and `writeBits` take any `n ≤ 32` (the C code never asks for more than 24);
+`readBits` with `n > 32` is `Error.param`, `writeBits` clamps `n` to 32. A short read is
+`Error.eof` and leaves the reader unchanged. `writeBits` keeps only the low `n` bits of its
+argument. The position is a `Nat` of bits, so inputs of any size are fine.
 
 Neither side allocates per bit: reads gather whole byte fragments into a `UInt64`, writes
 accumulate in a `UInt64` and push whole bytes.
 -/
 
-namespace Bzip2.Oracle
+namespace Bzip2.Oracle.BitIO
 
 /-- A reader: the input and the position in bits from its start. -/
 structure BitReader where
+  /-- The input. -/
   data : ByteArray
   /-- Bit position; bit `p` is bit `7 - p % 8` of byte `p / 8`. -/
   pos : Nat := 0
@@ -22,6 +30,7 @@ structure BitReader where
 
 namespace BitReader
 
+/-- A reader at the first bit of `data`. -/
 def ofByteArray (data : ByteArray) : BitReader := { data }
 
 /-- Number of bits left. -/
@@ -72,13 +81,17 @@ end BitReader
 
 /-- A writer: finished bytes plus up to 7 pending bits in `acc` (low `nbits` bits). -/
 structure BitWriter where
+  /-- Whole bytes written so far. -/
   buf : ByteArray := ByteArray.empty
+  /-- The pending bits, in the low `nbits` bits; the rest is zero. -/
   acc : UInt64 := 0
+  /-- How many bits are pending (at most 7). -/
   nbits : Nat := 0
   deriving Inhabited
 
 namespace BitWriter
 
+/-- A writer with nothing written. -/
 def empty : BitWriter := {}
 
 /-- Number of bits written so far. -/
@@ -100,8 +113,10 @@ def writeBits (w : BitWriter) (n : Nat) (v : UInt32) : BitWriter :=
   let (buf, nb) := flush w.buf acc (w.nbits + n) 5
   { buf, acc := acc &&& ((1 <<< nb.toUInt64) - 1), nbits := nb }
 
+/-- Writes one bit. -/
 def writeBit (w : BitWriter) (b : Bool) : BitWriter := w.writeBits 1 (if b then 1 else 0)
 
+/-- Writes one byte (8 bits, not necessarily aligned). -/
 def writeByte (w : BitWriter) (b : UInt8) : BitWriter := w.writeBits 8 b.toUInt32
 
 /-- Pads the last byte with zero bits and returns all bytes. -/
@@ -111,4 +126,4 @@ def finish (w : BitWriter) : ByteArray :=
 
 end BitWriter
 
-end Bzip2.Oracle
+end Bzip2.Oracle.BitIO

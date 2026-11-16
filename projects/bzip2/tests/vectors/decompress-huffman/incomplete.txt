@@ -1,0 +1,108 @@
+# lengths 1 2 3: codes 0, 10, 110; 111... is unassigned and runs past 20 bits
+len 1 2 3
+bits 5b 3f ff ff ff
+n 8
+minLen 1
+limit 0 0 2 6 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+base 0 0 1 4 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3
+perm 0 1 2
+syms 0 1 2 2 0
+pos 10
+end data
+
+# lengths 2 2 2: 11 is unassigned
+len 2 2 2
+bits 4b ff ff fc
+n 5
+minLen 2
+limit 0 0 2 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+base 0 0 0 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3
+perm 0 1 2
+syms 1 0 2
+pos 6
+end data
+
+# lengths 2 2 2: the unassigned code first
+len 2 2 2
+bits ff ff ff
+n 1
+minLen 2
+limit 0 0 2 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+base 0 0 0 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3
+perm 0 1 2
+syms
+pos 0
+end data
+
+# lengths 1 3 3: 11 is unassigned, and the gap at length 2
+len 1 3 3
+bits 4a ff ff ff
+n 6
+minLen 1
+limit 0 0 1 5 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+base 0 0 1 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3
+perm 0 1 2
+syms 0 1 2 0
+pos 8
+end data
+
+# lengths 5 5 5: minLen 5, limit 2 at length 5
+len 5 5 5
+bits 10 41 ff ff ff ff fe
+n 5
+minLen 5
+limit 0 0 0 0 0 2 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+base 0 0 0 0 0 0 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3
+perm 0 1 2
+syms 2 1 0
+pos 15
+end data
+
+# lengths 1 2 ... 20: the longest code is 20 bits, 1^20 is unassigned
+len 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20
+bits ff ff ef ff ff 80
+n 3
+minLen 1
+limit 0 0 2 6 14 30 62 126 254 510 1022 2046 4094 8190 16382 32766 65534 131070 262142 524286 1048574 0 0
+base 0 0 1 4 11 26 57 120 247 502 1013 2036 4083 8178 16369 32752 65519 131054 262125 524268 1048555 20 20
+perm 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19
+syms 19
+pos 20
+end data
+
+# lengths 1 2 ... 20: 21 ones end in zn = 21 (data)
+len 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20
+bits ff ff f8
+n 1
+minLen 1
+limit 0 0 2 6 14 30 62 126 254 510 1022 2046 4094 8190 16382 32766 65534 131070 262142 524286 1048574 0 0
+base 0 0 1 4 11 26 57 120 247 502 1013 2036 4083 8178 16369 32752 65519 131054 262125 524268 1048555 20 20
+perm 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19
+syms
+pos 0
+end data
+
+# lengths 1 2 ... 20: 16 ones, then the input ends inside the code (eof)
+len 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20
+bits ff ff
+n 1
+minLen 1
+limit 0 0 2 6 14 30 62 126 254 510 1022 2046 4094 8190 16382 32766 65534 131070 262142 524286 1048574 0 0
+base 0 0 1 4 11 26 57 120 247 502 1013 2036 4083 8178 16369 32752 65519 131054 262125 524268 1048555 20 20
+perm 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19
+syms
+pos 0
+end eof
+
+# lengths 17 3 3 3: an incomplete set mixing short and long codes
+len 17 3 3 3
+bits 60 00 21 ff ff fe
+n 6
+minLen 3
+limit 0 0 0 2 5 11 23 47 95 191 383 767 1535 3071 6143 12287 24575 49152 0 0 0 0 0
+base 0 0 0 0 3 9 21 45 93 189 381 765 1533 3069 6141 12285 24573 49149 4 4 4 4 4
+perm 1 2 3 0
+syms 0 3 1
+pos 23
+end data
+

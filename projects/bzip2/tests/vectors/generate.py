@@ -38,7 +38,7 @@ raw = {
 for i in (1, 2, 3):
     raw[f"sample{i}"] = read(os.path.join(upstream, f"sample{i}.ref"))
 
-# nblockMAX = 100000 * level - 19 (upstream/bzlib.c:194): a level-1 block holds 99981 bytes.
+# nblockMAX = 100000 * level - 19 (bzlib.c:194): a level-1 block holds 99981 bytes.
 level1_limit = 99981
 
 # (name, compressed input, level) for decompression: valid streams

@@ -6,8 +6,14 @@ set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 up=$here/../../upstream
 b=${BZIP2_BUILD:-${TMPDIR:-/tmp}/bzip2-golden-build}
-if [ ! -x "$b/bzip2" ] || [ ! -x "$b/classify" ]; then
+# Include the build recipe, driver, and vendored C sources and headers in the cache key.
+# A shared BZIP2_BUILD may have been populated by another checkout or an older recipe.
+source_hash=$(sha256sum "$here/build-bzip2.sh" "$here/classify.c" "$up"/*.c "$up"/*.h |
+  sha256sum | cut -d ' ' -f 1)
+if [ ! -x "$b/bzip2" ] || [ ! -x "$b/classify" ] ||
+   [ ! -f "$b/source.sha256" ] || [ "$(cat "$b/source.sha256")" != "$source_hash" ]; then
   mkdir -p "$b"
+  rm -f "$b/source.sha256"
   for f in blocksort huffman crctable randtable compress decompress bzlib bzip2; do
     gcc -O2 -D_FILE_OFFSET_BITS=64 -I"$up" -c "$up/$f.c" -o "$b/$f.o"
   done
@@ -15,5 +21,6 @@ if [ ! -x "$b/bzip2" ] || [ ! -x "$b/classify" ]; then
   objs="$b/blocksort.o $b/huffman.o $b/crctable.o $b/randtable.o $b/compress.o $b/decompress.o $b/bzlib.o"
   gcc -o "$b/bzip2" "$b/bzip2.o" $objs
   gcc -o "$b/classify" "$b/classify.o" $objs
+  printf '%s\n' "$source_hash" > "$b/source.sha256"
 fi
 echo "$b"

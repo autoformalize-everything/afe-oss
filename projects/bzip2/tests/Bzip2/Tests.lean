@@ -101,7 +101,8 @@ def checkCompress (vectors : System.FilePath) (input : ByteArray) (level : Nat) 
     | .error msg => return .fail s!"level {level}: {msg}"
     | .ok back =>
       if back != input then return .fail s!"level {level}: vendored bzip2 -d output differs"
-      else if oracleUnchecked then return .skip "decompress unimplemented (oracle roundtrip unchecked)"
+      else if oracleUnchecked then
+        return .skip "decompress unimplemented (oracle roundtrip unchecked)"
       else return .pass
 
 def caseDirs (dir : System.FilePath) : IO (Array System.FilePath) := do
@@ -132,5 +133,7 @@ def main : IO UInt32 := do
     for level in [1, 9] do
       let name := s!"compress/{dir.fileName.getD ""}/level{level}"
       counts ← report counts name (← checkCompress vectors input level)
-  IO.println s!"bzip2-tests: {counts.passed} passed, {counts.skipped} skipped, {counts.failed} failed"
+  let summary := s!"bzip2-tests: {counts.passed} passed, {counts.skipped} skipped, " ++
+    s!"{counts.failed} failed"
+  IO.println summary
   return if counts.failed == 0 then 0 else 1

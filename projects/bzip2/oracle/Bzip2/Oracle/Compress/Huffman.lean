@@ -1,0 +1,190 @@
+/-!
+# Oracle: code lengths, tables and selectors
+
+Chooses the Huffman coding tables and selectors of one block as `sendMTFValues` does
+(`upstream/compress.c`), with `BZ2_hbMakeCodeLengths` and `BZ2_hbAssignCodes`
+(`upstream/huffman.c`). All arithmetic is the C's (integer division, heap tie order).
+The input is the block's MTF/RLE2 symbol sequence, ending with EOB.
+-/
+
+namespace Bzip2.Oracle.Compress.Huffman
+
+/-- `BZ_MAX_CODE_LEN`-independent limits: `BZ_G_SIZE`, `BZ_N_ITERS`, `BZ_N_GROUPS` (`bzlib_private.h`). -/
+def groupSize : Nat := 50
+def numIters : Nat := 4
+def numGroups : Nat := 6
+/-- The maximum code length passed by `sendMTFValues` (`compress.c`). -/
+def maxCodeLen : Nat := 17
+
+/-- Heap state of `BZ2_hbMakeCodeLengths`; arrays are indexed from 1, entry 0 a sentinel. -/
+private structure HS where
+  heap : Array Nat
+  weight : Array Nat
+  nHeap : Nat
+
+/-- `UPHEAP(z)`. -/
+private def upHeap (heap weight : Array Nat) (z : Nat) : Array Nat := Id.run do
+  let mut heap := heap
+  let mut zz := z
+  let tmp := heap[zz]!
+  while weight[tmp]! < weight[heap[zz / 2]!]! do
+    heap := heap.set! zz heap[zz / 2]!
+    zz := zz / 2
+  heap.set! zz tmp
+
+/-- `DOWNHEAP(z)`. -/
+private def downHeap (heap weight : Array Nat) (nHeap z : Nat) : Array Nat := Id.run do
+  let mut heap := heap
+  let mut zz := z
+  let tmp := heap[zz]!
+  repeat
+    let mut yy := zz * 2
+    if yy > nHeap then break
+    if yy < nHeap && weight[heap[yy + 1]!]! < weight[heap[yy]!]! then yy := yy + 1
+    if weight[tmp]! < weight[heap[yy]!]! then break
+    heap := heap.set! zz heap[yy]!
+    zz := yy
+  heap.set! zz tmp
+
+/-- `BZ2_hbMakeCodeLengths`: code lengths for `freq` (zero counts treated as 1), at most `maxLen`
+by repeatedly halving the weights. Requires `0 < freq.size ≤ 258`. -/
+partial def makeCodeLengths (freq : Array Nat) (maxLen : Nat) : Array Nat := Id.run do
+  let alphaSize := freq.size
+  let mut weight : Array Nat := Array.replicate (alphaSize * 2 + 2) 0
+  for i in [0:alphaSize] do
+    weight := weight.set! (i + 1) ((if freq[i]! == 0 then 1 else freq[i]!) <<< 8)
+  let mut len : Array Nat := Array.replicate alphaSize 0
+  repeat
+    let mut nNodes := alphaSize
+    let mut nHeap := 0
+    let mut heap : Array Nat := Array.replicate (alphaSize + 2) 0
+    -- parent: -1 is encoded as 0 (node numbers start at 1; 0 is the sentinel, parent -2).
+    let mut parent : Array Nat := Array.replicate (alphaSize * 2 + 2) 0
+    weight := weight.set! 0 0
+    for i in [1:alphaSize + 1] do
+      nHeap := nHeap + 1
+      heap := heap.set! nHeap i
+      heap := upHeap heap weight nHeap
+    while nHeap > 1 do
+      let n1 := heap[1]!
+      heap := heap.set! 1 heap[nHeap]!
+      nHeap := nHeap - 1
+      heap := downHeap heap weight nHeap 1
+      let n2 := heap[1]!
+      heap := heap.set! 1 heap[nHeap]!
+      nHeap := nHeap - 1
+      heap := downHeap heap weight nHeap 1
+      nNodes := nNodes + 1
+      parent := (parent.set! n1 nNodes).set! n2 nNodes
+      let w1 := weight[n1]!
+      let w2 := weight[n2]!
+      weight := weight.set! nNodes
+        (((w1 &&& 0xffffff00) + (w2 &&& 0xffffff00)) ||| (1 + max (w1 &&& 0xff) (w2 &&& 0xff)))
+      nHeap := nHeap + 1
+      heap := heap.set! nHeap nNodes
+      heap := upHeap heap weight nHeap
+    let mut tooLong := false
+    for i in [1:alphaSize + 1] do
+      let mut j := 0
+      let mut k := i
+      while parent[k]! != 0 do
+        k := parent[k]!
+        j := j + 1
+      len := len.set! (i - 1) j
+      if j > maxLen then tooLong := true
+    if !tooLong then break
+    for i in [1:alphaSize + 1] do
+      weight := weight.set! i ((1 + (weight[i]! >>> 8) / 2) <<< 8)
+  return len
+
+/-- `BZ2_hbAssignCodes`. -/
+def assignCodes (length : Array Nat) (minLen maxLen : Nat) : Array Nat := Id.run do
+  let mut code : Array Nat := Array.replicate length.size 0
+  let mut vec := 0
+  for n in [minLen:maxLen + 1] do
+    for i in [0:length.size] do
+      if length[i]! == n then
+        code := code.set! i vec
+        vec := vec + 1
+    vec := vec <<< 1
+  return code
+
+/-- The coding tables and selectors of one block. -/
+structure Tables where
+  /-- `nGroups`, 2 to 6. -/
+  nGroups : Nat
+  /-- Code length of each symbol, per table (`nGroups` tables of `alphaSize` entries). -/
+  len : Array (Array Nat)
+  /-- Code of each symbol, per table. -/
+  code : Array (Array Nat)
+  /-- The table chosen for each group of 50 symbols. -/
+  selector : Array Nat
+  deriving Repr, BEq, Inhabited
+
+/-- Number of tables for `nMTF` symbols (`sendMTFValues`). -/
+def numTables (nMTF : Nat) : Nat :=
+  if nMTF < 200 then 2 else if nMTF < 600 then 3 else if nMTF < 1200 then 4
+  else if nMTF < 2400 then 5 else 6
+
+/-- The initial tables: `len[t][v]` is 0 inside table `t`'s symbol range, 15 elsewhere. -/
+private def initialLens (mtfFreq : Array Nat) (alphaSize nMTF nGroups : Nat) :
+    Array (Array Nat) := Id.run do
+  let mut len : Array (Array Nat) := Array.replicate nGroups (Array.replicate alphaSize 15)
+  let mut nPart := nGroups
+  let mut remF := nMTF
+  let mut gs : Int := 0
+  while nPart > 0 do
+    let tFreq := remF / nPart
+    let mut ge : Int := gs - 1
+    let mut aFreq := 0
+    while aFreq < tFreq && ge < (alphaSize : Int) - 1 do
+      ge := ge + 1
+      aFreq := aFreq + mtfFreq[ge.toNat]!
+    if ge > gs && nPart != nGroups && nPart != 1 && (nGroups - nPart) % 2 == 1 then
+      aFreq := aFreq - mtfFreq[ge.toNat]!
+      ge := ge - 1
+    len := len.set! (nPart - 1)
+      ((Array.range alphaSize).map fun (v : Nat) => if Int.ofNat v ≥ gs && Int.ofNat v ≤ ge then 0 else 15)
+    nPart := nPart - 1
+    gs := ge + 1
+    remF := remF - aFreq
+  return len
+
+/-- Chooses tables and selectors for `mtfv` (the block's symbols, EOB last) over an alphabet
+of `alphaSize = nInUse + 2` symbols, as `sendMTFValues` does. Requires `mtfv` nonempty with
+all symbols `< alphaSize`. -/
+def choose (mtfv : Array UInt16) (alphaSize : Nat) : Tables := Id.run do
+  let nMTF := mtfv.size
+  let mut mtfFreq : Array Nat := Array.replicate alphaSize 0
+  for s in mtfv do
+    mtfFreq := mtfFreq.modify s.toNat (· + 1)
+  let nGroups := numTables nMTF
+  let mut len := initialLens mtfFreq alphaSize nMTF nGroups
+  let mut selector : Array Nat := #[]
+  for _ in [0:numIters] do
+    let mut rfreq : Array (Array Nat) := Array.replicate nGroups (Array.replicate alphaSize 0)
+    selector := #[]
+    let mut gs := 0
+    while gs < nMTF do
+      let ge := min (gs + groupSize - 1) (nMTF - 1)
+      let mut cost : Array Nat := Array.replicate nGroups 0
+      for i in [gs:ge + 1] do
+        let icv := mtfv[i]!.toNat
+        for t in [0:nGroups] do
+          cost := cost.modify t (· + len[t]![icv]!)
+      let mut bc := 999999999
+      let mut bt := 0
+      for t in [0:nGroups] do
+        if cost[t]! < bc then
+          bc := cost[t]!
+          bt := t
+      selector := selector.push bt
+      for i in [gs:ge + 1] do
+        rfreq := rfreq.modify bt fun r => r.modify mtfv[i]!.toNat (· + 1)
+      gs := ge + 1
+    len := rfreq.map fun f => makeCodeLengths f maxCodeLen
+  let code := len.map fun l =>
+    assignCodes l (l.foldl min 32) (l.foldl max 0)
+  return { nGroups, len, code, selector }
+
+end Bzip2.Oracle.Compress.Huffman

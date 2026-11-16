@@ -1,3 +1,5 @@
+import Bzip2.Oracle.Compress.Huffman
+
 /-!
 # bzip2: the oracle
 

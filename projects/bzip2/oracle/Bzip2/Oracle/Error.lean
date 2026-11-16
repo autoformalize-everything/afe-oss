@@ -1,8 +1,4 @@
-/-!
-# Oracle errors
-
-The result codes shared by all oracle parts; re-exported by `Bzip2.Oracle`.
--/
+/-! The oracle's error type. Parts import this module, not `Bzip2.Oracle`. -/
 
 namespace Bzip2.Oracle
 

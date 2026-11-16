@@ -6,3 +6,8 @@
 /projects/bzip2/upstream/bzip2
 /projects/bzip2/upstream/bzip2recover
 __pycache__/
+# the Lean formalization: Lake's build and package links, fuzzer builds and corpora
+/projects/bzip2/.lake/
+/projects/bzip2/fuzz/build/
+/projects/bzip2/fuzz/corpus/*/
+!/projects/bzip2/fuzz/corpus/seed/

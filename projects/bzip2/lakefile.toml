@@ -1,0 +1,43 @@
+name = "bzip2"
+version = "0.1.0"
+defaultTargets = ["Bzip2Spec", "Bzip2Oracle", "Bzip2Proofs", "bzip2-oracle"]
+testDriver = "bzip2_tests"
+
+[leanOptions]
+autoImplicit = false
+relaxedAutoImplicit = false
+
+[[require]]
+name = "mathlib"
+git = "https://github.com/leanprover-community/mathlib4"
+rev = "v4.36.0"
+
+# The specification: what a bzip2 stream is and what it decodes to. Imports Mathlib only.
+[[lean_lib]]
+name = "Bzip2Spec"
+srcDir = "spec"
+roots = ["Bzip2.Spec"]
+
+# The oracle: the executable Lean implementation. Must not import Bzip2.Spec or Bzip2.Proofs.
+[[lean_lib]]
+name = "Bzip2Oracle"
+srcDir = "oracle"
+roots = ["Bzip2.Oracle"]
+
+# Proofs that the oracle meets the specification.
+[[lean_lib]]
+name = "Bzip2Proofs"
+srcDir = "proofs"
+roots = ["Bzip2.Proofs"]
+
+# `bzip2-oracle -z|-d [-1..-9]`: the oracle as a filter, stdin to stdout.
+[[lean_exe]]
+name = "bzip2-oracle"
+srcDir = "oracle"
+root = "Bzip2.Cli"
+
+# `lake test`: the golden vectors in tests/vectors.
+[[lean_exe]]
+name = "bzip2_tests"
+srcDir = "tests"
+root = "Bzip2.Tests"

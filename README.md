@@ -10,7 +10,8 @@ projects/<name>/
   upstream/     the project's source, vendored unmodified at a pinned commit
   docs/         documentation written by the fleet
   tools/        checkers that tasks use as their verify command
-images/         agent container images
+  ...           project work, e.g. bzip2's Lean formalization (spec/, oracle/, proofs/, fuzz/)
+images/         agent container images (c-agent; bzip2-lean for the bzip2 formalization)
 ```
 
 Tasks live in [afe-tasks](https://github.com/autoformalize-everything/afe-tasks); coordination

@@ -2,7 +2,7 @@
 # Oracle: code lengths, tables and selectors
 
 Chooses the Huffman coding tables and selectors of one block as `sendMTFValues` does
-(`compress.c:273-277` table count, `compress.c:283-315` initial partition, `compress.c:322-451`
+(`compress.c:273-277` table count, `compress.c:283-316` initial partition, `compress.c:322-451`
 refinement and selectors, `compress.c:480-492` codes), with `BZ2_hbMakeCodeLengths`
 (`huffman.c:63-148`) and `BZ2_hbAssignCodes` (`huffman.c:152-166`). All arithmetic is the C's
 (integer division, heap tie order). The input is the block's MTF/RLE2 symbol sequence, ending
@@ -146,10 +146,11 @@ def numTables (nMTF : Nat) : Nat :=
   if nMTF < 200 then 2 else if nMTF < 600 then 3 else if nMTF < 1200 then 4
   else if nMTF < 2400 then 5 else 6
 
-/-- The initial tables (`compress.c:283-315`): `len[t][v]` is 0 (`BZ_LESSER_ICOST`) inside table
-`t`'s symbol range and 15 (`BZ_GREATER_ICOST`) elsewhere (`compress.c:309-312`). Ranges are
-cut by cumulative frequency, `remF / nPart` per range (`compress.c:292-300`), giving back the
-last symbol on odd steps (`compress.c:302-306`). -/
+/-- The initial tables (`compress.c:283-316`): `len[t][v]` is 0 (`BZ_LESSER_ICOST`) inside table
+`t`'s symbol range and 15 (`BZ_GREATER_ICOST`) elsewhere (`compress.c:308-311`). Ranges are
+cut by cumulative frequency: the target is `remF / nPart` (`compress.c:287`), the range grows
+until it is reached (`compress.c:288-293`), and on odd steps the last symbol is given back
+(`compress.c:295-300`). -/
 private def initialLens (mtfFreq : Array Nat) (alphaSize nMTF nGroups : Nat) :
     Array (Array Nat) := Id.run do
   let mut len : Array (Array Nat) := Array.replicate nGroups (Array.replicate alphaSize 15)

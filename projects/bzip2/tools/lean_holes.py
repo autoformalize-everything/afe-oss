@@ -37,11 +37,18 @@ def code_only(text: str) -> str:
 
 
 PATTERN = re.compile(r"(?<![\w.'])(sorry|admit)(?![\w'])|^\s*(?:private\s+|protected\s+)?axiom\b", re.M)
-found = 0
-for path in sys.argv[1:]:
-    code = code_only(open(path, encoding="utf-8").read())
-    for m in PATTERN.finditer(code):
-        line = code.count("\n", 0, m.start()) + 1
-        print(f"{path}:{line}: {m.group(0).strip()}")
-        found += 1
-sys.exit(1 if found else 0)
+
+
+def main() -> int:
+    found = 0
+    for path in sys.argv[1:]:
+        code = code_only(open(path, encoding="utf-8").read())
+        for m in PATTERN.finditer(code):
+            line = code.count("\n", 0, m.start()) + 1
+            print(f"{path}:{line}: {m.group(0).strip()}")
+            found += 1
+    return 1 if found else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

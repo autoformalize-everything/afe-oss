@@ -15,4 +15,12 @@ bad=$(lean_files oracle | xargs -r grep -nE '^import\s+(Mathlib|Bzip2\.Spec|Bzip
 bad=$(lean_files spec | xargs -r grep -nE '^import\s+Bzip2\.(Oracle|Proofs|Cli)' || true)
 [ -z "$bad" ] || { echo "the spec imports the oracle or the proofs:"; echo "$bad"; fail=1; }
 
+# The shared root modules list no parts and are not edited by tasks: every change to one
+# conflicts with every other open change. (Compared with where this branch left origin/master.)
+if [ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" != master ] && base=$(git merge-base origin/master HEAD 2>/dev/null); then
+  roots="spec/Bzip2/Spec.lean oracle/Bzip2/Oracle.lean proofs/Bzip2/Proofs.lean"
+  bad=$( { git diff --name-only "$base" HEAD -- $roots; git status --porcelain -- $roots | cut -c4-; } | sort -u)
+  [ -z "$bad" ] || { echo "shared root modules must not be changed (add your own module instead):"; echo "$bad"; fail=1; }
+fi
+
 exit $fail

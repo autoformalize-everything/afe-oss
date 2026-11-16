@@ -10,8 +10,8 @@ undoes. A run of 4 to 255 equal bytes is written as 4 copies followed by a count
 Everything here is about the bytes of *one block*. That a run never spans two blocks (the
 compressor flushes the pending run when a block is full) belongs to `Bzip2.Spec.Format`. So does
 the de-randomisation of blocks with the `blockRandomised` bit, which is applied to the bytes
-*before* this stage (`BZ_RAND_UPD_MASK` in the randomised branch of `bzlib.c:538-590`), and the CRC, which is over the
-decoded bytes.
+*before* this stage (`BZ_RAND_UPD_MASK` in the randomised branch of `bzlib.c:538-590`), and the
+CRC, which is over the decoded bytes.
 
 References are to `projects/bzip2/upstream/bzlib.c` (commit f5dfc96) unless stated otherwise.
 
@@ -26,7 +26,8 @@ byte is read unconditionally as a count (`bzlib.c:659`; alike `584`, `754`, `799
 Edge cases, each decided in `bzlib.c`:
 
 1. **Runs of 1 to 3 equal bytes** are copied (`state_out_len` set to 1, 2 or 3 and the run
-   ended by a different byte, `bzlib.c:639-657`, the non-randomised FAST branch; the others are alike).
+   ended by a different byte, `bzlib.c:639-657`, the non-randomised FAST branch; the others
+   are alike).
 2. **Four equal bytes** are always followed by a count byte `c`, and the run is `4 + c`
    copies (`state_out_len = k1 + 4`, `bzlib.c:659`; alike `584`, `754`, `799`). Nothing in the
    decoder restricts `c`.
@@ -36,8 +37,9 @@ Edge cases, each decided in `bzlib.c`:
    `bzlib.c:660`) starts a fresh run, even if it equals the run's byte: `a a a a 0 a a a a 0`
    decodes to 8 copies of `a`, and `a a a a 0 a` to 5.
 5. **A block that ends right after 4 equal bytes** (no count byte) is rejected. The end-of-block
-   checks (`nblock_used == save_nblock+1`, `bzlib.c:639-657`, the non-randomised FAST branch; the others are alike) follow only the first three
-   reads; there is none before the count read (`bzlib.c:658-659`). So the decoder fetches the count
+   checks (`nblock_used == save_nblock+1`, `bzlib.c:639-657`, the non-randomised FAST branch;
+   the others are alike) follow only the first three reads; there is none before the count read
+   (`bzlib.c:658-659`). So the decoder fetches the count
    byte past the end of the block, then `k0` once more, and `nblock_used` reaches
    `save_nblock+2`. The run is written, and then `nblock_used > save_nblock+1` makes the function
    return `True` (`bzlib.c:560`, `633`, `730`, `779`) and `BZ2_bzDecompress` return
@@ -56,23 +58,23 @@ Edge cases, each decided in `bzlib.c`:
 
 `ADD_CHAR_TO_BLOCK` (`bzlib.c:260-285`) keeps the pending run `(state_in_ch, state_in_len)`. A byte
 that equals it extends the run, unless the run already has 255 bytes (`state_in_len == 255`,
-`bzlib.c:274`); otherwise the pending run is written by `add_pair_to_block` (`bzlib.c:216-248`) and
-the byte starts a new one. Written: 1 to 3 bytes verbatim, otherwise 4 copies and
-the byte `len - 4` (`bzlib.c:240-246`); `flush_RL` (`bzlib.c:252`) writes the last run. So a run
-of 256 equal bytes becomes the 255-run (`a a a a 251`) and then a single `a`; a run of 259 becomes
-`a a a a 251 a a a a 0`. `encodeRle1` models the same state machine.
+`bzlib.c:275-276`); otherwise the pending run is written by `add_pair_to_block`
+(`bzlib.c:216-248`) and the byte starts a new one. Written: 1 to 3 bytes verbatim, otherwise
+4 copies and the byte `len - 4` (`bzlib.c:240-246`); `flush_RL` (`bzlib.c:252`) writes the last
+run. So a run of 256 equal bytes becomes the 255-run (`a a a a 251`) and then a single `a`; a run
+of 259 becomes `a a a a 251 a a a a 0`. `encodeRle1` models the same state machine.
 (The compressor also stops filling a block early, `bzlib.c:298`; that is a block-boundary matter.)
 -/
 
-namespace Bzip2.Spec
-
-namespace Rle1
+namespace Bzip2.Spec.Rle1
 
 /-- The decoder's state: the output so far, and the byte of the current run with the number of
 equal bytes seen (`none` before the first byte and right after a count byte). A run of length 4
 means that the next byte is a count. -/
 structure DecState where
+  /-- The bytes written so far. -/
   out : List UInt8 := []
+  /-- The byte of the current run and how many equal bytes were seen, if a run is open. -/
   run : Option (UInt8 × Nat) := none
 
 /-- Consume one byte (`k1`) of the RLE1 block. -/
@@ -95,7 +97,9 @@ def Truncated (xs : List UInt8) : Prop :=
 /-- The state machine of the compressor (`state_in_ch`, `state_in_len`): the output so far and
 the pending run. -/
 structure EncState where
+  /-- The RLE1 bytes written so far. -/
   out : List UInt8 := []
+  /-- The pending run: its byte and length (`state_in_ch`, `state_in_len`), if any. -/
   run : Option (UInt8 × Nat) := none
 
 /-- What `add_pair_to_block` writes for a run of `n` copies of `c` (`bzlib.c:216-248`). -/
@@ -116,22 +120,18 @@ def encFlush (s : EncState) : List UInt8 :=
   | none => s.out
   | some (c, n) => s.out ++ pair c n
 
-end Rle1
-
 /-- The RLE1 decoder, as `unRLE_obuf_to_output_FAST`/`_SMALL` behave on any byte string. On a
 block that ends right after 4 equal bytes (see `Rle1.Truncated`), where C fails, the result is
 what was decoded so far. See the module doc for the edge cases. -/
-def decodeRle1 (xs : List UInt8) : List UInt8 := (Rle1.decState xs).out
+def decodeRle1 (xs : List UInt8) : List UInt8 := (decState xs).out
 
 /-- The RLE1 encoder of the compressor (`ADD_CHAR_TO_BLOCK`, `add_pair_to_block`): runs are cut
 at 255 bytes. -/
-def encodeRle1 (xs : List UInt8) : List UInt8 := Rle1.encFlush (xs.foldl Rle1.encStep {})
+def encodeRle1 (xs : List UInt8) : List UInt8 := encFlush (xs.foldl encStep {})
 
 /-- The roundtrip statement: decoding what the compressor wrote gives the input back. Left to
 `bzip2/proofs/rle`, not proved here. -/
 def Rle1Roundtrip : Prop := ∀ x : List UInt8, decodeRle1 (encodeRle1 x) = x
-
-namespace Rle1
 
 private def rep (b : UInt8) (n : Nat) : List UInt8 := List.replicate n b
 
@@ -157,11 +157,9 @@ example : decodeRle1 [7, 7, 7, 7, 0, 7, 7, 7, 7, 0] = rep 7 8 := by decide +kern
 example : decodeRle1 [7, 7, 7, 7, 0, 7] = rep 7 5 := by decide +kernel
 -- A block ending right after 4 equal bytes is truncated (edge case 5); one ending after 3 is not.
 example : decodeRle1 [7, 7, 7, 7] = rep 7 4 := by decide +kernel
-example : (Rle1.decState [7, 7, 7, 7]).run = some (7, 4) := by decide +kernel
-example : (Rle1.decState [7, 7, 7]).run = some (7, 3) := by decide +kernel
-example : (Rle1.decState [7, 7, 7, 7, 0]).run = none := by decide +kernel
-example : (Rle1.decState [1, 7, 7, 7, 7, 3]).run = none := by decide +kernel
+example : (decState [7, 7, 7, 7]).run = some (7, 4) := by decide +kernel
+example : (decState [7, 7, 7]).run = some (7, 3) := by decide +kernel
+example : (decState [7, 7, 7, 7, 0]).run = none := by decide +kernel
+example : (decState [1, 7, 7, 7, 7, 3]).run = none := by decide +kernel
 
-end Rle1
-
-end Bzip2.Spec
+end Bzip2.Spec.Rle1

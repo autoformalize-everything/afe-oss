@@ -1,7 +1,3 @@
-import Mathlib.Data.List.Basic
-import Bzip2.Spec.MtfRle2
-import Bzip2.Spec.Huffman
-
 /-!
 # bzip2: the specification
 
@@ -10,7 +6,9 @@ behaves (`projects/bzip2/upstream`, commit f5dfc96: 1.0.8 plus later fixes; its 
 reference, and `docs/surface-area.md` documents them). The oracle must agree with this
 specification, and `Bzip2.Proofs` shows that it does.
 
-Each part goes in its own module under `Bzip2.Spec`, imported here:
+Each part is its own module under `Bzip2.Spec`; Lake builds them all (see `lakefile.toml`), and
+a module imports the parts it needs directly. This file lists none of them and is not edited
+by tasks (`tools/check-sources.sh` rejects it):
 
 * `Bzip2.Spec.Crc`: CRC-32 as bzip2 uses it, the block CRC and the combined stream CRC.
 * `Bzip2.Spec.Rle1`: the initial run-length encoding (runs of 4 to 255 equal bytes).
@@ -21,9 +19,5 @@ Each part goes in its own module under `Bzip2.Spec`, imported here:
   between a byte string and what it decompresses to.
 
 Definitions here favour clarity over speed; they need not be executable. They import Mathlib
-only, never `Bzip2.Oracle`.
+and other `Bzip2.Spec` modules only, never `Bzip2.Oracle`.
 -/
-
-namespace Bzip2.Spec
-
-end Bzip2.Spec

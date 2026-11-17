@@ -37,7 +37,8 @@ Facts this module settles, each read off the C code:
 * **The last byte and a full block.** Whether a block that is full exactly when the last input
   byte has been read is closed without the pending run depends on how the library is driven.
   With `BZ_RUN` calls followed by an empty `BZ_FINISH` (`bzip2`'s `compressStream`,
-  `bzip2.c:355-362`; `BZ2_bzWrite`, `bzlib.c:964-1005`), the check `nblock >= nblockMAX`
+  `bzip2.c:355-362`; `BZ2_bzWrite`, `bzlib.c:984-1003`; `BZ2_bzWriteClose64`,
+  `bzlib.c:1048-1053`), the check `nblock >= nblockMAX`
   (`bzlib.c:390`) runs after `copy_input_until_stop` and closes the block; the pending run is then
   alone in one more block. With the whole input in one `BZ_FINISH` call
   (`BZ2_bzBuffToBuffCompress`, `bzlib.c:1250-1351`, call at `bzlib.c:1282`) `avail_in_expect`

@@ -86,7 +86,7 @@ def sizes (level : Nat) (input : ByteArray) (oneShot : Bool := false) : List Nat
 -- The block CRC is over the original bytes: one block, and a block cut at a run's start.
 #guard (split 1 (rep 97 600))[0]!.crc == Bzip2.Oracle.Crc.crc32 (rep 97 600)
 #guard (split 1 "hello".toUTF8)[0]!.crc == Bzip2.Oracle.Crc.crc32 "hello".toUTF8
--- 99 982 distinct bytes: the first block is full after 99 981 bytes; the byte pending then is a
+-- 99 982 cyclic bytes: the first block is full after 99 981 bytes; the byte pending then is a
 -- block of its own (as `bzip2` runs the library) or part of the full block (one `BZ_FINISH`).
 #guard sizes 1 (seqBytes 99982) == [99981, 1]
 #guard sizes 1 (seqBytes 99982) true == [99982]
@@ -107,7 +107,7 @@ def sizes (level : Nat) (input : ByteArray) (oneShot : Bool := false) : List Nat
 #guard agrees (include_str "../../vectors/compress-blocks/run255-l1.txt")
 #guard agrees (include_str "../../vectors/compress-blocks/run256-l1.txt")
 #guard agrees (include_str "../../vectors/compress-blocks/run511-l1.txt")
--- A long run after `k` distinct bytes, for `k` from 99 974 to 99 983: the run straddles the
+-- A long run after `k` cyclic bytes, for `k` from 99 974 to 99 983: the run straddles the
 -- limit, and the block that is closed has the run's first bytes or none of it.
 #guard agrees (include_str "../../vectors/compress-blocks/seq99974-run600-l1.txt")
 #guard agrees (include_str "../../vectors/compress-blocks/seq99976-run600-l1.txt")

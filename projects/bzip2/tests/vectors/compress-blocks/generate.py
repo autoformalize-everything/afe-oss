@@ -110,7 +110,7 @@ case("byte-l1", 1, "run", 65, 1)
 case("short-runs-l1", 1, "run", 1, 1, "run", 2, 2, "run", 3, 3, "run", 4, 4, "run", 5, 5)
 for n in (99980, 99981, 99982, 99983, 199964):
     case(f"seq{n}-l1", 1, "seq", n)
-# Runs across the block boundary: a 600-byte run (255 + 255 + 90) after k distinct bytes.
+# Runs across the block boundary: a 600-byte run (255 + 255 + 90) after k cyclic bytes.
 for k in (99974, 99976, 99978, 99980, 99981, 99982, 99983):
     case(f"seq{k}-run600-l1", 1, "seq", k, "run", 9, 600, "seq", 7)
 for r in (255, 256, 511):

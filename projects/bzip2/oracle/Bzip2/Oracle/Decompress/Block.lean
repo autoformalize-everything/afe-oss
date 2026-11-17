@@ -43,11 +43,13 @@ them. Here a block that fails gives only the error.
 
 Choices: `tt` is the `Array UInt32` of `Symbols.Block`, updated in place, with the links in
 the upper 24 bits as in C (`nblock ≤ 900000 < 2 ^ 24`). The C decoder has two output loops,
-for randomised blocks and others (`bzlib.c:540-587`, `bzlib.c:589-680`), that differ only in the
-mask and in the order of two tests on the last byte; this module has one loop, which follows
-the randomised one. The `smallDecompress` mode (`unRLE_obuf_to_output_SMALL`) writes the same
-bytes and is not modelled. The output is a `ByteArray` that grows by one byte at a time, with
-the CRC updated as it grows.
+for randomised blocks and others (`bzlib.c:540-587`, `bzlib.c:589-680`). Apart from the mask
+they differ only in the order of their tests on `nblock_used` (`bzlib.c:557-561` against
+`bzlib.c:633-639`, `bzlib.c:567-568` against `bzlib.c:642-646`), which changes neither the
+bytes written nor the result; this module has one loop, which follows the randomised one. The
+`smallDecompress` mode (`unRLE_obuf_to_output_SMALL`) writes the same bytes and is not
+modelled. The output is a `ByteArray` that grows by one byte at a time, with the CRC updated
+as it grows.
 -/
 
 namespace Bzip2.Oracle.Decompress.Block

@@ -59,6 +59,13 @@ srcDir = "tests"
 roots = ["Bzip2.Test"]
 globs = ["Bzip2.Test.+"]
 
+# C-callable oracle entry points; `lake build Bzip2Ffi:static` produces the archive.
+[[lean_lib]]
+name = "Bzip2Ffi"
+srcDir = "fuzz/ffi"
+roots = ["Bzip2.Ffi.Oracle"]
+defaultFacets = ["static"]
+
 # `bzip2-oracle -z|-d [-1..-9]`: the oracle as a filter, stdin to stdout.
 [[lean_exe]]
 name = "bzip2-oracle"

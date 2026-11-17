@@ -11,7 +11,8 @@ This is a bit-level decoder for the format accepted by the `bzip2 -d` program. B
 read most significant bit first, and multi-bit integers are big-endian (`decompress.c:43-68`).
 The `BZh` header and level come from `decompress.c:197-209`; block magic, CRC, randomisation
 flag and 24-bit `origPtr` from `decompress.c:222-264`; the map, selectors and delta-coded
-lengths from `decompress.c:266-334`; groups of 50 symbols from `decompress.c:74-102`.
+lengths from `decompress.c:266-334`, where selectors past 18002 are read but ignored
+(`decompress.c:299-306`); groups of 50 symbols from `decompress.c:74-102`.
 The block size and `origPtr` checks are at `decompress.c:358` and
 `decompress.c:495-498`; block and combined CRC checks are at `bzlib.c:823-848`.
 The end marker and CRC are read at `decompress.c:587-609`. Padding bits are discarded, as the
@@ -95,7 +96,8 @@ def undoSelectors (groups : Nat) (codes : List Nat) : List Nat :=
       let t := s.1.getD i 0
       (t :: s.1.erase t, t :: s.2)) (List.range groups, [])).2).reverse
 
-/-- Read all selectors, including those past the 18002 that the C decoder stores. -/
+/-- Read all `nSelectors` selectors but keep only the first 18002, as the C decoder reads the
+rest without storing them and then clamps `nSelectors` (`decompress.c:299-306`). -/
 def readSelectors : Parser (Nat × List Nat) := do
   let groups ← readNat 3
   require (2 ≤ groups && groups ≤ 6)

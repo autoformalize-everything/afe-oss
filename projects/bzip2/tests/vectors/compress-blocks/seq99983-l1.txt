@@ -1,0 +1,8 @@
+input seq 99983
+level 1
+program
+block 99981 e49508f3 6a25c1cf ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+block 2 3533a0d9 004198e2 0000000000000000000000000000000000060000000000000000000000000000
+oneshot
+block 99981 e49508f3 6a25c1cf ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+block 2 3533a0d9 004198e2 0000000000000000000000000000000000060000000000000000000000000000

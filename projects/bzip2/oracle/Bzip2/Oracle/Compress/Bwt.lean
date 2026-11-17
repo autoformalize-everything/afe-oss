@@ -13,8 +13,8 @@ shifts, with no comparison sorts. A first counting sort orders them by their fir
 each later round orders them by twice as many bytes: it takes the current order, shifts it by the
 key length, and distributes it stably into the classes of the first key. A class is named by the
 row where it starts, so its bucket needs no prefix sums and a round is two passes over the block.
-Random blocks need two rounds. The time is O(n log n) in the worst case, and the interpreter
-handles 900 000-byte blocks in a few seconds (the tests).
+The time is O(n log n) in the worst case, and the interpreter handles 900 000-byte blocks in a
+few seconds (the tests).
 
 Tie-breaking: rotations are compared as byte strings (unsigned bytes, as in `blocksort.c:354-362`).
 Equal rotations occur exactly when `block` is periodic; they are interchangeable in the output

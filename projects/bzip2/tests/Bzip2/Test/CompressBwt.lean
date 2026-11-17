@@ -1,7 +1,8 @@
 import Bzip2.Oracle.Compress.Bwt
 
 /-! Unit tests of `Bzip2.Oracle.Compress.Bwt`: the forward BWT against a naive sort of all
-rotations on small blocks, known examples, and 900 000-byte blocks (inverted by the standard last-to-first walk). -/
+rotations on small blocks, known examples, and 900 000-byte blocks (inverted by the standard
+last-to-first walk). -/
 
 open Bzip2.Oracle.Compress.Bwt
 
@@ -88,8 +89,7 @@ def roundTrips (b : ByteArray) : Bool :=
 -- `origPtr` is row 0 and the last column is the run itself.
 #guard bwt (ByteArray.mk (Array.replicate 900000 7)) == (ByteArray.mk (Array.replicate 900000 7), 0)
 
--- A random block: the last column is a permutation of the block, sorted rows agree with the
--- first column, and the inverse gives the block back.
+-- A random block: the transform has the right size and inverts to the block.
 #guard
   let b := sample 1 900000 256
   let r := bwt b

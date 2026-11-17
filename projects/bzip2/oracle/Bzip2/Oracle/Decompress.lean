@@ -30,9 +30,9 @@ also what `BZ2_bzReadGetUnused` reports as unused (`bzlib.c:1239`).
   with `BZ_OUTBUFF_FULL` when the output does not fit (`bzlib.c:1343-1345`). Neither function
   here has a limit, so neither has that error; for a buffer filled exactly by a stream that is
   cut off, the C call gives `BZ_OUTBUFF_FULL` where these give `Error.eof` (`bzlib.c:1340`).
-* Not modelled: `bzip2 -f`, which copies an input whose first stream has a bad header to the
-  output unchanged (`bzip2.c:506-517`); I/O errors; `BZ_MEM_ERROR`; the `small` mode, which
-  gives the same results.
+* Not modelled: `bzip2 -f`, which at a bad header in any stream rewinds the input and copies
+  all of it to the output (`bzip2.c:465`, `bzip2.c:506-517`); I/O errors; `BZ_MEM_ERROR`; the
+  `small` mode, which gives the same results.
 -/
 
 namespace Bzip2.Oracle

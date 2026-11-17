@@ -35,6 +35,15 @@ COPY lakefile.toml lake-manifest.json lean-toolchain /opt/bzip2-lake/
 RUN cd /opt/bzip2-lake && lake exe cache get && lake build Mathlib \
   && chmod -R a+rX /opt/bzip2-lake && chmod -R a-w /opt/bzip2-lake/.lake
 
+# Lake runs `git diff --exit-code` in every package on every start. The chmod above changed every
+# file's ctime after git recorded it in the package's index, and the agents (not root) cannot
+# write the refreshed index back: git re-checked all of Mathlib's files on every `lake` run, 0.7 s
+# each time. Refresh each index now, and compare only size and mtime in these repos, so the index
+# also matches where the image is unpacked again (new ctimes and inodes); the packages never change.
+RUN for p in /opt/bzip2-lake/.lake/packages/*/; do \
+      git -C "$p" config core.checkStat minimal && git -C "$p" config core.trustctime false \
+      && git -C "$p" update-index -q --refresh; done
+
 # Login shells (`bash -lc`, which Codex runs every command in) reset PATH from /etc/profile and
 # lose /opt/elan/bin: put the Lean commands where every shell finds them.
 RUN ln -s /opt/elan/bin/* /usr/local/bin/

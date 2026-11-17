@@ -32,7 +32,8 @@ then index), `limit[n]` and `base[n]`
 counts it*, `base[n]` the offset into `perm`), and reads: `zn = minLen` bits as `zvec`, then,
 while `zvec > limit[zn]`, one more bit (`zn++`, `zvec = 2·zvec + bit`). `limit` is 0 outside
 `minLen .. maxLen` (`huffman.c:180-199`). The symbol is `perm[zvec - base[zn]]`
-(`decompress.c:88-101`). These values use `Int32` in C (`decompress.c:130-137`); for stream
+(`decompress.c:88-101`). The decoder tables and locals use `Int32` in C
+(`bzlib_private.h:406-409`, `decompress.c:130-137`); for stream
 lengths the table arithmetic stays below `258 · 2^20`, so `Int` models it. Bits are taken MSB
 first (`decompress.c:43-51`).
 
@@ -161,10 +162,12 @@ def Complete (lens : Lens) : Prop :=
 
 instance (lens : Lens) : Decidable (Complete lens) := by unfold Complete; infer_instance
 
-/-- The statement for `bzip2/proofs/huffman`: on a legal, complete table decoding the assigned
-codeword of any symbol, followed by anything, yields that symbol and leaves the rest. -/
+/-- The statement for `bzip2/proofs/huffman`: on a legal, complete stream-sized table, decoding
+the assigned codeword of any symbol, followed by anything, yields that symbol and leaves the
+rest. The alphabet bound is necessary because `GET_MTF_VAL` rejects indices at least 258
+(`decompress.c:98-100`), even for a complete table with more symbols. -/
 def DecodeAssigned (lens : Lens) : Prop :=
-  Legal lens → Complete lens → ∀ i < lens.length, ∀ rest : List Bool,
+  Legal lens → lens.length ≤ 258 → Complete lens → ∀ i < lens.length, ∀ rest : List Bool,
     decodeSym lens (codeword lens i ++ rest) = .sym i rest
 
 /-! ### Examples -/

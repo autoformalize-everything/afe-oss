@@ -13,3 +13,13 @@ Planned layout (the `bzip2/fuzz/*` tasks create it):
     compress_diff.c      each side decompresses the other's output to the input; byte-identical
                          output once the oracle reproduces the C library exactly
     corpus/seed/         committed seed inputs; build/ and other corpora are not committed
+
+Build and run the FFI smoke test from the repository root:
+
+    projects/bzip2/fuzz/build.sh
+    projects/bzip2/fuzz/build/ffi_smoke
+
+The C API is in `ffi/bzip2_oracle.h`. Each call returns a libbz2 status code or
+`BZIP2_ORACLE_UNIMPLEMENTED` (-10), and fills a result whose buffer is released with
+`bzip2_oracle_result_free`. `decompress_stream` also reports the consumed input bytes. The
+current oracle stream APIs are stubs, so the smoke test accepts their unimplemented status.

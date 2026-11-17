@@ -3,9 +3,13 @@ import Bzip2.Oracle.Compress
 /-!
 # Oracle byte-exact compression tests
 
-Checks short periodic streams against fixed output from the vendored compressor.
-The larger periodic blocks and all three levels are checked by
-`tests/vectors/byte-exact/check.py` after building `bzip2-oracle`.
+Checks periodic streams against the vendored compressor's output (`tests/vectors/byte-exact`,
+made by `generate.py` from the vendored `bzip2`).
+The short streams (`a`, `abab`, `aaaa`) are compared byte for byte. The blocks under and over
+10 000 bytes (`blocksort.c:1083-1088` picks `fallbackSort` below that size) are generated here
+and compared by length and by the bzip2 CRC32 of the whole compressed stream, at levels 1, 5
+and 9: `ab` repeated 4999 and 5500 times, `a` repeated 9999 and 11000 times, and a 1000-byte
+pattern repeated 9 and 11 times.
 -/
 
 open Bzip2.Oracle
@@ -90,3 +94,54 @@ open Bzip2.Oracle
   0x12, 0x33, 0xa6
  ]
   | .error _ => false
+
+namespace Bzip2.Test.ByteExact
+
+/-- The 1000-byte pattern of `generate.py`'s `root1000`: the high half of a 32-bit linear
+congruential generator. -/
+def pattern1000 : ByteArray := Id.run do
+  let mut state : UInt32 := 1
+  let mut out := ByteArray.empty
+  for _ in [0:1000] do
+    state := state * 1103515245 + 12345
+    out := out.push ((state >>> 16) &&& 255).toUInt8
+  return out
+
+/-- `data` repeated `n` times. -/
+def repeatBytes (data : ByteArray) (n : Nat) : ByteArray := Id.run do
+  let mut out := ByteArray.empty
+  for _ in [0:n] do
+    out := out ++ data
+  return out
+
+/-- `compress level data` succeeds with a stream of `size` bytes whose CRC32 is `crc`. -/
+def agrees (level : Nat) (data : ByteArray) (size : Nat) (crc : UInt32) : Bool :=
+  match compress level data with
+  | .ok z => z.size == size && Crc.crc32 z == crc
+  | .error _ => false
+
+#guard agrees 1 (repeatBytes "ab".toUTF8 4999) 43 0x8f427135
+#guard agrees 5 (repeatBytes "ab".toUTF8 4999) 43 0x32c28c79
+#guard agrees 9 (repeatBytes "ab".toUTF8 4999) 43 0xf082961a
+
+#guard agrees 1 (repeatBytes "ab".toUTF8 5500) 42 0x9e77ea73
+#guard agrees 5 (repeatBytes "ab".toUTF8 5500) 42 0xaa0d5c95
+#guard agrees 9 (repeatBytes "ab".toUTF8 5500) 42 0xf68287bf
+
+#guard agrees 1 (repeatBytes "a".toUTF8 9999) 47 0x8d988787
+#guard agrees 5 (repeatBytes "a".toUTF8 9999) 47 0x6c608d25
+#guard agrees 9 (repeatBytes "a".toUTF8 9999) 47 0x4aa98f74
+
+#guard agrees 1 (repeatBytes "a".toUTF8 11000) 47 0xd9bc06e5
+#guard agrees 5 (repeatBytes "a".toUTF8 11000) 47 0x38440c47
+#guard agrees 9 (repeatBytes "a".toUTF8 11000) 47 0x1e8d0e16
+
+#guard agrees 1 (repeatBytes pattern1000 9) 2055 0xb9fab92a
+#guard agrees 5 (repeatBytes pattern1000 9) 2055 0x455c6934
+#guard agrees 9 (repeatBytes pattern1000 9) 2055 0x447604a1
+
+#guard agrees 1 (repeatBytes pattern1000 11) 2055 0x5bf3814b
+#guard agrees 5 (repeatBytes pattern1000 11) 2055 0xa7555155
+#guard agrees 9 (repeatBytes pattern1000 11) 2055 0xa67f3cc0
+
+end Bzip2.Test.ByteExact

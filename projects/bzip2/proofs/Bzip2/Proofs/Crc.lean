@@ -2,18 +2,45 @@ import Bzip2.Spec.Crc
 import Bzip2.Oracle.Crc
 
 /-!
-# CRC correspondence
+# The table-driven CRC is the specified CRC
 
-The oracle's table lookup implements `BZ_UPDATE_CRC` (`bzlib_private.h:167-172`),
-with the initial value and final complement from `bzlib_private.h:157-165`.
-The combined CRC rotates and xors each block CRC in `compress.c:606-608`, starting
-at zero in `bzlib.c:192`.
+`Bzip2.Oracle.Crc` computes the block CRC as the C library does: one table lookup per byte,
+`BZ_UPDATE_CRC` (`bzlib_private.h:167-172`), from the initial value `BZ_INITIALISE_CRC`
+(`bzlib_private.h:157-160`) to the complement `BZ_FINALISE_CRC` (`bzlib_private.h:162-165`).
+`Bzip2.Spec.Crc` defines the same CRC bit by bit, without a table. This module proves the two
+equal, on every input, and does the same for the combined CRC: the rotation and xor of each
+block CRC into the stream CRC, which `BZ2_compressBlock` does at `compress.c:607-608` (from the
+zero set in `BZ2_bzCompressInit`, `bzlib.c:192`) and `BZ2_bzDecompress` at `bzlib.c:832-835`
+(from the zero set in `BZ2_bzDecompressInit`, `bzlib.c:515`).
 
-The bridge uses `UInt32.toBitVec` for states and `UInt8.toBitVec` for bytes.
-The byte-array proof covers the default full-array range of the oracle's CRC function.
+* `updateByte_eq_spec`: one table lookup is the specification's eight bit steps.
+* `update_slice_eq_spec`, `crc32_slice_eq_spec`: the oracle's `update` and `crc32` over any slice
+  `data[start, stop)` of a byte array.
+* `crc32_eq_spec`: the oracle's `crc32` of a whole byte array (the defaults `start := 0` and
+  `stop := data.size`).
+* `combine_eq_spec`, `streamCrc_eq_spec`: the combined CRC, for one block and for a list of them.
+
+Choices made here. The oracle computes with `UInt32` and `UInt8`, the specification with
+`BitVec 32` and `BitVec 8`; the statements relate them through `UInt32.toBitVec` and
+`UInt8.toBitVec`. A `ByteArray` is related to the specification's byte list through
+`ByteArray.toList`, and the slice `data[start, stop)` is
+`(data.toList.drop start).take (stop - start)`.
+
+Edge cases. The C macros see one byte at a time, so the slice and its clamping belong to the
+oracle (see `Bzip2.Oracle.Crc`): a `stop` beyond the end of the array is clamped to the end, and
+a `start` that is not below the clamped `stop` gives the empty slice. `List.drop` and `List.take`
+clamp in the same way, so the slice statements hold for every `start` and `stop`. The oracle
+masks the table index with `0xff`; the index `(crc >> 24) ^ byte` of `BZ_UPDATE_CRC` is below 256
+already, so the mask changes nothing.
 -/
 
 namespace Bzip2.Proofs.Crc
+
+/-! ### The table
+
+Entry `i` of the oracle's table is the specification's byte step applied to the state `0` and the
+byte `i`: `table_correct` evaluates all 256 entries in the kernel. `table_lookup` shows that the
+entry `updateByte` looks up is the one for the top byte of the state xor the input byte. -/
 
 private theorem table_correct : ∀ i : Fin 256,
     (Oracle.Crc.table[i.val]!).toBitVec =
@@ -44,12 +71,19 @@ private theorem table_lookup (c : UInt32) (b : UInt8) :
   have h := table_correct ⟨i, hi⟩
   simpa only [hb] using h
 
+/-! ### The byte step splits at the top byte
+
+A bit step of the specification is linear for xor, and so are eight of them. Split the state into
+its top byte and its low 24 bits. The top byte xor the input byte goes through the eight steps as
+it would from the state `0`: that is the table entry. The low 24 bits meet a zero top bit at each
+of the eight steps, so they are only shifted left by 8. `bit_formula` is the result:
+`crcUpdate c b = (c <<< 8) ^^^ crcUpdate 0 (top byte of c ^^^ b)`. -/
+
 private theorem bit_linear (x y : BitVec 32) :
     Spec.Crc.crcBit (x ^^^ y) = Spec.Crc.crcBit x ^^^ Spec.Crc.crcBit y := by
   unfold Spec.Crc.crcBit
   rw [BitVec.msb_xor, BitVec.shiftLeft_xor_distrib]
-  cases hx : x.msb <;> cases hy : y.msb <;>
-    simp_all <;> grind [BitVec.xor_assoc, BitVec.xor_comm, BitVec.xor_self]
+  grind [BitVec.xor_assoc, BitVec.xor_comm, BitVec.xor_self]
 
 private theorem iterate_linear (n : Nat) (x y : BitVec 32) :
     (Nat.iterate Spec.Crc.crcBit n) (x ^^^ y) =
@@ -64,7 +98,6 @@ private theorem iterate_linear (n : Nat) (x y : BitVec 32) :
 private theorem low_msb (lo : BitVec 24) (n : Nat) (hn : n < 8) :
     ((0#8 ++ lo) <<< n).msb = false := by
   rw [BitVec.msb_eq_getLsbD_last, BitVec.getLsbD_shiftLeft]
-  have hi : 24 ≤ 31 - n := by omega
   have hnot : ¬ 31 - n < 24 := by omega
   simp only [show (31 : Nat) < 32 by decide, decide_true, Bool.true_and,
     show ¬ (31 : Nat) < n by omega, decide_false, Bool.not_false]
@@ -120,7 +153,7 @@ private theorem top_eq (b : BitVec 8) : b.zeroExtend 32 <<< 24 = b ++ 0#24 := by
   · have h8 : i - 24 < 8 := by omega
     simp [h24, h8, hi, show i - 24 < 32 by omega]
 
-private theorem gethigh (hi : BitVec 8) (lo : BitVec 24) :
+private theorem truncate_ushiftRight_append (hi : BitVec 8) (lo : BitVec 24) :
     ((hi ++ lo) >>> 24).truncate 8 = hi := by
   rw [BitVec.truncate_eq_setWidth, BitVec.setWidth_ushiftRight_eq_extractLsb]
   exact BitVec.extractLsb'_append_eq_left
@@ -139,57 +172,20 @@ private theorem bit_formula (c : BitVec 32) (b : BitVec 8) :
   have hc : c = hi ++ lo := split_eq c
   rw [hc]
   unfold Spec.Crc.crcUpdate
-  rw [top_eq b, gethigh hi lo, top_eq (hi ^^^ b)]
+  rw [top_eq b, truncate_ushiftRight_append hi lo, top_eq (hi ^^^ b)]
   rw [xor_split hi b lo, iterate_linear, low_iter lo 8 (by decide), shift_eq hi lo]
   simp only [Nat.reduceAdd, Function.iterate_succ,
     Function.comp_apply, BitVec.ofNat_eq_ofNat, BitVec.zero_xor]
   exact BitVec.xor_comm _ _
 
-private theorem updateByte_eq_spec (c : UInt32) (b : UInt8) :
+/-- One step of the oracle's table-driven CRC equals the specification's eight bit steps
+(`BZ_UPDATE_CRC`, `bzlib_private.h:167-172`). -/
+theorem updateByte_eq_spec (c : UInt32) (b : UInt8) :
     (Oracle.Crc.updateByte c b).toBitVec = Spec.Crc.crcUpdate c.toBitVec b.toBitVec := by
   rw [bit_formula]
   unfold Oracle.Crc.updateByte
   rw [UInt32.toBitVec_xor, UInt32.toBitVec_shiftLeft, table_lookup]
   simp
-
-private theorem get_bang_eq (data : ByteArray) (i : Nat) (h : i < data.size) :
-    data.get! i = data[i]! := by
-  simp [getElem!_pos data i h, getElem!_pos data.data i (by simpa using h),
-    ByteArray.get!, ByteArray.getElem_eq_getElem_data]
-
-private theorem toList_loop_eq (data : ByteArray) (i : Nat) (acc : List UInt8)
-    (hi : i ≤ data.size) :
-    ByteArray.toList.loop data i acc =
-      acc.reverse ++ ((List.range' i (data.size - i)).map fun j => data[j]!) := by
-  generalize hn : data.size - i = n
-  induction n using Nat.strong_induction_on generalizing i acc with
-  | ind n ih =>
-    by_cases hlt : i < data.size
-    · have hprev : data.size - (i + 1) < n := by omega
-      have hnext : i + 1 ≤ data.size := by omega
-      rw [ByteArray.toList.loop.eq_1, ite_eq_left hlt]
-      rw [get_bang_eq data i hlt]
-      rw [ih (data.size - (i + 1)) hprev (i + 1) (data[i]! :: acc) hnext rfl]
-      rw [← hn]
-      rw [show data.size - i = (data.size - (i + 1)) + 1 by omega]
-      rw [List.range'_succ]
-      simp only [List.map_cons, List.reverse_cons]
-      simp [List.append_assoc]
-    · have hn0 : n = 0 := by omega
-      rw [ByteArray.toList.loop.eq_1, ite_eq_right hlt, hn0]
-      simp
-
-private theorem toList_eq_range (data : ByteArray) :
-    data.toList = (List.range data.size).map fun i => data[i]! := by
-  unfold ByteArray.toList
-  rw [toList_loop_eq data 0 [] (Nat.zero_le _)]
-  simp only [List.reverse_nil, List.nil_append, Nat.sub_zero, List.range_eq_range']
-
-private theorem update_eq_fold (c : UInt32) (data : ByteArray) :
-    Oracle.Crc.update c data = data.toList.foldl Oracle.Crc.updateByte c := by
-  rw [toList_eq_range]
-  simp [Oracle.Crc.update, List.forIn_pure_yield_eq_foldl,
-    List.range_eq_range', List.foldl_map]
 
 private theorem foldl_state (bytes : List UInt8) (c : UInt32) :
     (bytes.foldl Oracle.Crc.updateByte c).toBitVec =
@@ -200,15 +196,71 @@ private theorem foldl_state (bytes : List UInt8) (c : UInt32) :
     simp only [List.foldl_cons, List.map_cons]
     rw [ih, updateByte_eq_spec]
 
-/-- The oracle's table-driven CRC of every byte array equals the bitwise specification. -/
+/-! ### Byte arrays
+
+`ByteArray.toList` is a loop over `get!`, and the oracle's `update` is a `for` loop over the
+indices of the slice. Both are reduced to the list `(data.toList.drop start).take (stop - start)`
+and a fold over it. -/
+
+private theorem toList_loop (data : ByteArray) (i : Nat) (acc : List UInt8) :
+    ByteArray.toList.loop data i acc = acc.reverse ++ data.data.toList.drop i := by
+  fun_induction ByteArray.toList.loop data i acc with
+  | case1 i r h ih =>
+    have hi : i < data.data.size := h
+    have hd := List.drop_eq_getElem_cons (l := data.data.toList) (i := i) (by simpa using hi)
+    rw [ih, hd]
+    simp [ByteArray.get!, getElem!_pos data.data i hi]
+  | case2 i r h =>
+    rw [List.drop_eq_nil_of_le (by simpa using h)]
+    simp
+
+private theorem toList_eq_data (data : ByteArray) : data.toList = data.data.toList := by
+  rw [ByteArray.toList, toList_loop]
+  simp
+
+private theorem slice_eq (data : ByteArray) (start stop : Nat) :
+    (List.range' start (min stop data.size - start)).map (fun i => data[i]!) =
+      (data.toList.drop start).take (stop - start) := by
+  apply List.ext_getElem
+  · simp [toList_eq_data]
+    omega
+  · intro j h1 _
+    have hj : j < min stop data.size - start := by simpa using h1
+    have hlt : start + j < data.size := by omega
+    simp [toList_eq_data, getElem!_pos data (start + j) hlt, ByteArray.getElem_eq_getElem_data]
+
+private theorem update_eq_foldl (c : UInt32) (data : ByteArray) (start stop : Nat) :
+    Oracle.Crc.update c data start stop =
+      ((data.toList.drop start).take (stop - start)).foldl Oracle.Crc.updateByte c := by
+  rw [← slice_eq]
+  simp [Oracle.Crc.update, List.forIn_pure_yield_eq_foldl, List.foldl_map]
+
+/-- The oracle's CRC state after the slice `data[start, stop)` is the specification's fold of
+`crcUpdate` over the bytes of that slice, for every `start` and `stop`. -/
+theorem update_slice_eq_spec (c : UInt32) (data : ByteArray) (start stop : Nat) :
+    (Oracle.Crc.update c data start stop).toBitVec =
+      (((data.toList.drop start).take (stop - start)).map UInt8.toBitVec).foldl
+        Spec.Crc.crcUpdate c.toBitVec := by
+  rw [update_eq_foldl, foldl_state]
+
+/-- The oracle's CRC of the slice `data[start, stop)` equals the specification's CRC of the bytes
+of that slice, for every `start` and `stop`. -/
+theorem crc32_slice_eq_spec (data : ByteArray) (start stop : Nat) :
+    (Oracle.Crc.crc32 data start stop).toBitVec =
+      Spec.Crc.crc32 (((data.toList.drop start).take (stop - start)).map UInt8.toBitVec) := by
+  unfold Oracle.Crc.crc32 Spec.Crc.crc32 Oracle.Crc.finalise
+  rw [UInt32.toBitVec_not, update_slice_eq_spec]
+  rfl
+
+/-- The oracle's CRC of a whole byte array equals the specification's CRC of its bytes. -/
 theorem crc32_eq_spec (data : ByteArray) :
     (Oracle.Crc.crc32 data).toBitVec =
       Spec.Crc.crc32 (data.toList.map UInt8.toBitVec) := by
-  unfold Oracle.Crc.crc32 Spec.Crc.crc32 Oracle.Crc.finalise
-  rw [update_eq_fold, UInt32.toBitVec_not, foldl_state]
-  rfl
+  rw [crc32_slice_eq_spec, toList_eq_data, List.drop_zero, Nat.sub_zero,
+    List.take_of_length_le (by simp)]
 
-/-- The oracle's combined-CRC step equals the specification's rotation and xor. -/
+/-- The oracle's combined-CRC step equals the specification's rotation and xor
+(`compress.c:607-608`). -/
 theorem combine_eq_spec (combined blockCrc : UInt32) :
     (Oracle.Crc.combine combined blockCrc).toBitVec =
       Spec.Crc.combineCrc combined.toBitVec blockCrc.toBitVec := by

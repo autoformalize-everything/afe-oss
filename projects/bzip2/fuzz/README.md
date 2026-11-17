@@ -37,6 +37,11 @@ and the same number of input bytes consumed. `BZ_OUTBUFF_FULL` is skipped (the o
 output limit). The header comment of `decompress_diff.c` says how each verdict and the consumed
 count are obtained.
 
+A mutation inside a block nearly always breaks the block's CRC, and then both sides say `data`.
+So the harness has its own mutator: after libFuzzer's mutation, half the time, it rewrites the
+first block's CRC and the combined CRC to match what libbz2 decodes. Mutated blocks then
+decode, and their bytes are compared.
+
 Run it from the repository root (it builds first when a source is newer than the binary):
 
     projects/bzip2/fuzz/run.sh decompress 120
@@ -60,7 +65,7 @@ much faster. Every crash lands in `build/artifacts/decompress/`. Shrink the corp
 
 Reproduce and minimise a crash:
 
-    projects/bzip2/fuzz/build/decompress_diff build/artifacts/decompress/crash-...
+    projects/bzip2/fuzz/build/decompress_diff projects/bzip2/fuzz/build/artifacts/decompress/crash-...
     projects/bzip2/fuzz/build/decompress_diff -minimize_crash=1 -runs=100000 \
         -exact_artifact_path=/tmp/min projects/bzip2/fuzz/build/artifacts/decompress/crash-...
 
@@ -82,7 +87,12 @@ at the first stream only. A disagreement is either an oracle bug, fixed in
 `corpus/seed/` holds the upstream samples (`upstream/sample{1,2,3}.bz2`) and hand-made streams:
 the empty stream, short level 1 and level 9 streams, runs for the run-length stages, two
 concatenated streams, a stream with trailing garbage, a truncated stream, and a one-block
-stream with the randomised flag set and its CRCs fixed so that it decodes. Regenerate them:
+stream with the randomised flag set and its CRCs fixed so that it decodes. The `made-*` seeds
+are blocks no compressor writes, built by `make_seeds.py` from a BWT output and an `origPtr`
+of its choice: a run of 259, four equal bytes at the end of a block (with and without the count
+byte), 18010 selectors, an `origPtr` that starts the walk elsewhere, 100 000 and 100 001 bytes
+in a level-1 block, and two blocks. Each comment in `make_seeds.py` cites the C code involved.
+Regenerate them:
 
     b=$(sh projects/bzip2/tests/vectors/build-bzip2.sh)
     python3 projects/bzip2/fuzz/make_seeds.py "$b"

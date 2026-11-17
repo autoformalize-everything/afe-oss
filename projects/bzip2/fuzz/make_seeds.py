@@ -59,6 +59,149 @@ def no_runs(n):
     return bytes((i * 37 + i // 256) % 256 for i in range(n))
 
 
+# Hand-made blocks, for what no compressor writes. A block is given by its BWT output `tt`
+# (the bytes before the inverse BWT) and `origPtr`, which the decoder takes as they come.
+
+class Bits:
+    """A bit string, most significant bit first, as bsW writes it (compress.c:73-78)."""
+
+    def __init__(self):
+        self.bits = []
+
+    def put(self, value, n):
+        self.bits += [(value >> (n - 1 - i)) & 1 for i in range(n)]
+
+    def bytes(self):
+        bits = self.bits + [0] * (-len(self.bits) % 8)
+        return bytes(int("".join(map(str, bits[i:i + 8])), 2) for i in range(0, len(bits), 8))
+
+
+def walk(tt, orig_ptr, steps):
+    """`steps` bytes of the inverse BWT walk (decompress.c:566-572, BZ_GET_FAST at
+    bzlib_private.h:444-449); past `len(tt)` it goes on as the C walk does."""
+    cftab = [0] * 257
+    for b in tt:
+        cftab[b + 1] += 1
+    for i in range(256):
+        cftab[i + 1] += cftab[i]
+    links = [0] * len(tt)
+    for i, b in enumerate(tt):
+        links[cftab[b]] = i
+        cftab[b] += 1
+    pos, out = links[orig_ptr], []
+    for _ in range(steps):
+        out.append(tt[pos])
+        pos = links[pos]
+    return out
+
+
+def unrle(tt, orig_ptr):
+    """The block's bytes, by the loop of unRLE_obuf_to_output_FAST (bzlib.c:608-661), or None
+    where it reports corrupt data (bzlib.c:633-634)."""
+    w = walk(tt, orig_ptr, len(tt) + 3)
+    stop = len(tt) + 1
+    used, out, run, ch, k0 = 1, bytearray(), 0, 0, w[0]
+
+    def get():
+        nonlocal used
+        used += 1
+        return w[used - 1]
+    while True:
+        out += bytes([ch]) * run
+        if used > stop:
+            return None
+        if used == stop:
+            return bytes(out)
+        ch, k1 = k0, get()
+        if k1 != k0 or used == stop:
+            k0, run = k1, 1
+            continue
+        run, k1 = 2, get()
+        if used == stop:
+            continue
+        if k1 != k0:
+            k0 = k1
+            continue
+        run, k1 = 3, get()
+        if used == stop:
+            continue
+        if k1 != k0:
+            k0 = k1
+            continue
+        run = get() + 4
+        k0 = get()
+
+
+def bwt(data):
+    """The BWT output of `data` and its origPtr, by sorting rotations (small inputs only)."""
+    rows = sorted(range(len(data)), key=lambda i: data[i:] + data[:i])
+    return bytes(data[i - 1] for i in rows), rows.index(0)
+
+
+def put_block(bits, tt, orig_ptr, n_selectors=None):
+    """Writes one block (decompress.c:222-489): two coding tables (the fewest,
+    decompress.c:288), both giving every symbol a word of the same length. Returns the
+    block's bytes, or None where the decoder finds them corrupt."""
+    out = unrle(tt, orig_ptr)
+    bits.put(0x314159265359, 48)
+    bits.put(crc32(out) if out is not None else 0, 32)
+    bits.put(0, 1)
+    bits.put(orig_ptr, 24)
+    used = sorted(set(tt))
+    groups = [g for g in range(16) if any(b // 16 == g for b in used)]
+    for g in range(16):
+        bits.put(g in groups, 1)
+    for g in groups:
+        for j in range(16):
+            bits.put(g * 16 + j in used, 1)
+    # MTF, with runs of zeros as RUNA (0) and RUNB (1) digits (decompress.c:385-423).
+    mtf, syms, zeros = list(range(len(used))), [], 0
+
+    def flush():
+        nonlocal zeros
+        while zeros > 0:  # bijective base 2, RUNA the digit 1 and RUNB the digit 2
+            syms.append(1 - zeros % 2)
+            zeros = (zeros - 2 + zeros % 2) // 2
+    for b in tt:
+        i = mtf.index(used.index(b))
+        if i == 0:
+            zeros += 1
+            continue
+        flush()
+        syms.append(i + 1)
+        mtf.insert(0, mtf.pop(i))
+    flush()
+    syms.append(len(used) + 1)  # EOB (decompress.c:357)
+    alpha_size = len(used) + 2
+    length = (alpha_size - 1).bit_length()
+    if n_selectors is None:
+        n_selectors = (len(syms) + 49) // 50
+    bits.put(2, 3)
+    bits.put(n_selectors, 15)
+    bits.put(0, n_selectors)
+    for _ in range(2):
+        bits.put(length, 5)
+        bits.put(0, alpha_size)
+    for s in syms:
+        bits.put(s, length)
+    return out
+
+
+def made(level, *blocks):
+    """A stream of hand-made blocks, each (tt, origPtr) or (tt, origPtr, nSelectors), with the
+    combined CRC of bzlib.c:832-835."""
+    bits = Bits()
+    bits.put(int.from_bytes(b"BZh" + bytes([0x30 + level]), "big"), 32)
+    combined = 0
+    for block in blocks:
+        out = put_block(bits, *block)
+        crc = crc32(out) if out is not None else 0
+        combined = (((combined << 1) | (combined >> 31)) & 0xFFFFFFFF) ^ crc
+    bits.put(0x177245385090, 48)
+    bits.put(combined, 32)
+    return bits.bytes()
+
+
 seeds = {
     "empty.bz2": compress(b"", 9),
     "hello-1.bz2": compress(b"hello\n", 1),
@@ -69,6 +212,23 @@ seeds = {
     "randomised.bz2": randomised(no_runs(1000)),
 }
 seeds["truncated.bz2"] = seeds["runs.bz2"][:-10]
+hello = bwt(b"hello, world\n")
+assert unrle(*hello) == b"hello, world\n"
+seeds.update({
+    # A count byte of 255: a run of 259 (bzlib.c:658-660).
+    "made-run-259.bz2": made(1, bwt(b"xaaaa\xffy")),
+    # Four equal bytes end the block, so the count is read past its end (bzlib.c:633-634).
+    "made-run-at-end.bz2": made(1, bwt(b"xyaaaa")),
+    "made-count-at-end.bz2": made(1, bwt(b"xyaaaa\x05")),
+    # More than BZ_MAX_SELECTORS (18002) selectors: the rest are ignored (decompress.c:299-306).
+    "made-selectors-18010.bz2": made(1, (*hello, 18010)),
+    # An origPtr that starts the walk elsewhere: other bytes, no error (decompress.c:572).
+    "made-orig-ptr.bz2": made(1, (hello[0], (hello[1] + 1) % 13)),
+    # nblock up to 100000 * level is accepted (decompress.c:358, decompress.c:417).
+    "made-nblock-100000.bz2": made(1, (b"a" * 50000 + b"b" * 50000, 0)),
+    "made-nblock-100001.bz2": made(1, (b"a" * 50000 + b"b" * 50001, 0)),
+    "made-two-blocks.bz2": made(9, bwt(b"hello, "), bwt(b"world\n")),
+})
 for i in (1, 2, 3):
     with open(os.path.join(upstream, f"sample{i}.bz2"), "rb") as f:
         seeds[f"sample{i}.bz2"] = f.read()

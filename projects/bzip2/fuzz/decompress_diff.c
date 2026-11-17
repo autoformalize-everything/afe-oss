@@ -85,6 +85,87 @@ static unsigned c_consumed(char *source, unsigned size, unsigned expected_len)
     return size - avail_in;
 }
 
+/*
+ * The mutator. A mutation inside a block almost always breaks its CRC, and both sides then
+ * say "data", so the bytes of a changed block are seldom compared. After libFuzzer's own
+ * mutation, half the time, the mutator therefore rewrites the CRCs of a stream whose first
+ * block starts at byte 4: the block CRC (bytes 10-13, compress.c:624-637) becomes the CRC of
+ * the bytes libbz2 writes before it fails, which are the first block's when the block CRC
+ * was the error (bzlib.c:824-831); the 32 bits after the last end-of-stream magic become the
+ * same value, the combined CRC of a one-block stream (bzlib.c:832-835).
+ */
+size_t LLVMFuzzerMutate(uint8_t *data, size_t size, size_t max_size);
+
+static const uint8_t block_magic[6] = {0x31, 0x41, 0x59, 0x26, 0x53, 0x59};
+#define END_MAGIC 0x177245385090ull
+
+static uint32_t crc_of(const char *bytes, unsigned len)
+{
+    /* CRC-32, polynomial 0x04c11db7, most significant bit first (bzlib_private.h:157-172). */
+    uint32_t crc = 0xffffffffu;
+    for (unsigned i = 0; i < len; i++) {
+        crc ^= (uint32_t)(uint8_t)bytes[i] << 24;
+        for (int k = 0; k < 8; k++)
+            crc = (crc & 0x80000000u) ? (crc << 1) ^ 0x04c11db7u : crc << 1;
+    }
+    return ~crc;
+}
+
+static int get_bit(const uint8_t *data, size_t bit)
+{
+    return (data[bit / 8] >> (7 - bit % 8)) & 1;
+}
+
+static void put_bits32(uint8_t *data, size_t bit, uint32_t value)
+{
+    for (int k = 0; k < 32; k++, bit++) {
+        uint8_t mask = (uint8_t)(0x80 >> (bit % 8));
+        if ((value >> (31 - k)) & 1)
+            data[bit / 8] |= mask;
+        else
+            data[bit / 8] &= (uint8_t)~mask;
+    }
+}
+
+static void fix_crcs(uint8_t *data, size_t size)
+{
+    if (size < 14 + 10 || size > UINT_MAX || memcmp(data, "BZh", 3) != 0 ||
+        data[3] < '1' || data[3] > '9' || memcmp(data + 4, block_magic, 6) != 0)
+        return;
+    bz_stream strm;
+    memset(&strm, 0, sizeof(strm));
+    if (BZ2_bzDecompressInit(&strm, 0, 0) != BZ_OK)
+        return;
+    strm.next_in = (char *)data;
+    strm.avail_in = (unsigned)size;
+    strm.next_out = output;
+    strm.avail_out = OUTPUT_CAP;
+    BZ2_bzDecompress(&strm);
+    unsigned written = OUTPUT_CAP - strm.avail_out;
+    BZ2_bzDecompressEnd(&strm);
+    uint32_t crc = crc_of(output, written);
+    for (int k = 0; k < 4; k++)
+        data[10 + k] = (uint8_t)(crc >> (24 - 8 * k));
+    /* The last 48-bit end-of-stream magic with 32 bits after it, at any bit offset. */
+    uint64_t window = 0;
+    size_t last = 0;
+    for (size_t bit = 0; bit + 32 < size * 8; bit++) {
+        window = ((window << 1) | (uint64_t)get_bit(data, bit)) & 0xffffffffffffull;
+        if (bit >= 47 && window == END_MAGIC)
+            last = bit + 1;
+    }
+    if (last != 0)
+        put_bits32(data, last, crc);
+}
+
+size_t LLVMFuzzerCustomMutator(uint8_t *data, size_t size, size_t max_size, unsigned seed)
+{
+    size = LLVMFuzzerMutate(data, size, max_size);
+    if (seed % 2 == 0)
+        fix_crcs(data, size);
+    return size;
+}
+
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
     if (size > UINT_MAX)

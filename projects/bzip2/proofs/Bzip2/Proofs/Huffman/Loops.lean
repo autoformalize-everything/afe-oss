@@ -38,4 +38,55 @@ theorem forIn_loop_rel {β : Type} (P : β → Prop) (R : β → β → Prop) (�
       obtain ⟨hv, hlt, hR⟩ := hyield b v hb hfb
       exact hR _ (ih (μ v) (h ▸ hlt) v rfl hv)
 
+/-- An `if` between two `yield`s is a `yield` of an `if` (so that `for` bodies become folds). -/
+theorem ite_pure_yield {β : Type} {m : Type → Type} [Monad m] (c : Prop) [Decidable c] (a b : β) :
+    (if c then pure (ForInStep.yield a) else pure (ForInStep.yield b) : m (ForInStep β)) =
+      pure (ForInStep.yield (if c then a else b)) := by
+  split <;> rfl
+
+/-- `if` with a true condition. -/
+theorem ite_of_true {α : Sort _} {c : Prop} [Decidable c] (h : c) (a b : α) :
+    (if c then a else b) = a := by simp [h]
+
+/-- `if` with a false condition. -/
+theorem ite_of_false {α : Sort _} {c : Prop} [Decidable c] (h : ¬ c) (a b : α) :
+    (if c then a else b) = b := by simp [h]
+
+/-- `a[n]!` after `set!`. -/
+theorem getElem!_set! {α : Type} [Inhabited α] (a : Array α) (i n : Nat) (v : α) :
+    (a.set! i v)[n]! = if i = n ∧ i < a.size then v else a[n]! := by
+  by_cases hn : n < a.size
+  · have hn' : n < (a.set! i v).size := by simpa using hn
+    rw [getElem!_pos (a.set! i v) n hn', getElem!_pos a n hn]
+    simp only [Array.set!_eq_setIfInBounds]
+    by_cases h1 : i = n <;> simp [h1, hn]
+  · have hn' : ¬ n < (a.set! i v).size := by simpa using hn
+    rw [getElem!_neg (a.set! i v) n hn', getElem!_neg a n hn]
+    have : ¬ (i = n ∧ i < a.size) := fun h => hn (h.1 ▸ h.2)
+    simp [this]
+
+/-- `a[n]!` after `modify`. -/
+theorem getElem!_modify {α : Type} [Inhabited α] (a : Array α) (i n : Nat) (f : α → α) :
+    (a.modify i f)[n]! = if i = n ∧ i < a.size then f a[n]! else a[n]! := by
+  by_cases hn : n < a.size
+  · have hn' : n < (a.modify i f).size := by simpa using hn
+    rw [getElem!_pos (a.modify i f) n hn', getElem!_pos a n hn]
+    simp only [Array.getElem_modify]
+    by_cases h1 : i = n <;> simp [h1, hn]
+  · have hn' : ¬ n < (a.modify i f).size := by simpa using hn
+    rw [getElem!_neg (a.modify i f) n hn', getElem!_neg a n hn]
+    have : ¬ (i = n ∧ i < a.size) := fun h => hn (h.1 ▸ h.2)
+    simp [this]
+
+/-- `a[n]!` of a replicated array. -/
+theorem getElem!_replicate {α : Type} [Inhabited α] (k n : Nat) (v : α) :
+    (Array.replicate k v)[n]! = if n < k then v else default := by
+  by_cases hn : n < k
+  · have hn' : n < (Array.replicate k v).size := by simpa using hn
+    rw [getElem!_pos (Array.replicate k v) n hn']
+    simp [hn]
+  · have hn' : ¬ n < (Array.replicate k v).size := by simpa using hn
+    rw [getElem!_neg (Array.replicate k v) n hn']
+    simp [hn]
+
 end Bzip2.Proofs.Huffman.Loops

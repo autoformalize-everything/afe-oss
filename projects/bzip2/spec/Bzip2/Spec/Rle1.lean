@@ -28,9 +28,11 @@ byte is read unconditionally as a count (`bzlib.c:659`; alike `bzlib.c:584`, `bz
 
 Edge cases, each decided in `bzlib.c`:
 
-1. **Runs of 1 to 3 equal bytes** are copied (`state_out_len` set to 1, 2 or 3 and the run
-   ended by a different byte, `bzlib.c:639-657`, the non-randomised FAST branch; the others
-   are alike).
+1. **Runs of 1 to 3 equal bytes** are copied, each byte once, and a different byte (or the end
+   of the block) ends the run. In the non-randomised FAST branch a run of 1 is written at once
+   (`goto s_state_out_len_eq_one`, `bzlib.c:643` and `bzlib.c:646`), and `state_out_len` is set
+   to 2 or 3 at `bzlib.c:648` and `bzlib.c:653`; the other branches set it to 1, 2 or 3
+   (`bzlib.c:563-580`, `bzlib.c:733-750`, `bzlib.c:782-796`).
 2. **Four equal bytes** are always followed by a count byte `c`, and the run is `4 + c`
    copies (`state_out_len = k1 + 4`, `bzlib.c:659`; alike `bzlib.c:584`, `bzlib.c:754`,
    `bzlib.c:799`). Nothing in the decoder restricts `c`.
@@ -40,12 +42,12 @@ Edge cases, each decided in `bzlib.c`:
    `bzlib.c:660`) starts a fresh run, even if it equals the run's byte: `a a a a 0 a a a a 0`
    decodes to 8 copies of `a`, and `a a a a 0 a` to 5.
 5. **A block that ends right after 4 equal bytes** (no count byte) is rejected. The end-of-block
-   checks (`nblock_used == save_nblock+1`, `bzlib.c:639-657`, the non-randomised FAST branch;
-   the others are alike) follow only the first three reads; there is none before the count read
-   (`bzlib.c:658-659`). So the decoder fetches the count
-   byte past the end of the block, then `k0` once more, and `nblock_used` reaches
-   `save_nblock+2`. The run is written, and then `nblock_used > save_nblock+1` makes the function
-   return `True` (`bzlib.c:560`, `bzlib.c:633`, `bzlib.c:730`, `bzlib.c:779`) and
+   checks (`nblock_used == s_save_nblockPP`, i.e. `save_nblock+1`, at `bzlib.c:645`, `bzlib.c:650`
+   and `bzlib.c:655` in the non-randomised FAST branch; the others are alike) follow only the
+   first three reads; there is none before the count read (`bzlib.c:658-659`). So the decoder
+   fetches the count byte past the end of the block, then `k0` once more, and `nblock_used`
+   reaches `save_nblock+2`. The run is written, and then `nblock_used > save_nblock+1` makes the
+   function return `True` (`bzlib.c:560`, `bzlib.c:633`, `bzlib.c:730`, `bzlib.c:779`) and
    `BZ2_bzDecompress` return `BZ_DATA_ERROR` (`bzlib.c:823`), before the block CRC is looked at.
    The written run has length `4 + garbage`: the byte the inverse-BWT walk yields past the end
    of the block (not a function of this module's input). `decodeRle1` returns just the 4
@@ -117,7 +119,7 @@ def encStep (s : EncState) (x : UInt8) : EncState :=
       if x = c ∧ n < 255 then { s with run := some (c, n + 1) }
       else { out := s.out ++ pair c n, run := some (x, 1) }
 
-/-- `flush_RL` (`bzlib.c:252-257`): write the pending run. -/
+/-- `flush_RL` (`bzlib.c:252-256`): write the pending run. -/
 def encFlush (s : EncState) : List UInt8 :=
   match s.run with
   | none => s.out

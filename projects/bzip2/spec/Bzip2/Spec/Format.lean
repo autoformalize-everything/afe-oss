@@ -104,14 +104,18 @@ def readSelectors : Parser (Nat × List Nat) := do
   let codes ← (List.range count).mapM fun _ => readUnary groups groups 0
   return (groups, undoSelectors groups (codes.take 18002))
 
-/-- Read one length's zero-terminated sequence of up/down deltas. -/
+/-- Read one length's zero-terminated sequence of up/down deltas. As in
+`decompress.c:326-331`, the range check on `curr` precedes each bit read, so an out-of-range
+length is a data error even when no bits remain. `fuel` bounds the remaining bits; each step
+reads two, so it runs out only after `readBit` has already failed. -/
 def readDelta : Nat → Nat → Parser Nat
-  | 0, _ => throw .eof
-  | fuel + 1, curr => do
+  | fuel, curr => do
     require (1 ≤ curr && curr ≤ 20)
     if !(← readBit) then return curr
     let down ← readBit
-    readDelta fuel (if down then curr - 1 else curr + 1)
+    match fuel with
+    | 0 => throw .eof
+    | fuel + 1 => readDelta fuel (if down then curr - 1 else curr + 1)
 
 /-- Read one table's code lengths for the entire Huffman alphabet. -/
 def readLengths (size : Nat) : Parser (List Nat) := do
@@ -135,12 +139,13 @@ def readSymbol (lens : Huffman.Lens) : Parser Nat := do
   | .needMoreInput => throw .eof
   | .dataError | .staleEntry => throw .data
 
-/-- Decode symbols in groups of 50, stopping at EOB. The MTF/RLE2 checks run as soon as
-their triggering symbol has been read, before any later Huffman failure. -/
+/-- Decode symbols in groups of 50, stopping at EOB. A new group's selector is checked before
+its first bit is read (`decompress.c:76-79`). The MTF/RLE2 checks run as soon as their
+triggering symbol has been read, before any later Huffman failure. `fuel` bounds the
+remaining bits; every symbol reads at least one, so it runs out only after a failed read. -/
 def readSymbols (level : Nat) (used : List UInt8) (selectors : List Nat)
     (tables : List Huffman.Lens) : Nat → Nat → List Nat → Parser (List UInt8)
-  | 0, _, _ => throw .eof
-  | fuel + 1, index, syms => do
+  | fuel, index, syms => do
     let some selector := selectors[index / 50]? | throw .data
     let some lens := tables[selector]? | throw .data
     let sym ← readSymbol lens
@@ -148,7 +153,10 @@ def readSymbols (level : Nat) (used : List UInt8) (selectors : List Nat)
     match MtfRle2.decode level used syms with
     | .ok block => return block
     | .error .dataError => throw .data
-    | .error .needMoreInput => readSymbols level used selectors tables fuel (index + 1) syms
+    | .error .needMoreInput =>
+      match fuel with
+      | 0 => throw .eof
+      | fuel + 1 => readSymbols level used selectors tables fuel (index + 1) syms
 
 /-- The historic randomisation table `BZ2_rNums`, in `randtable.c:27-79`. -/
 def randomNumbers : List Nat :=
@@ -302,5 +310,33 @@ example : decode [0x42, 0x5a, 0x68, 0x30] = .error .magic := by decide +kernel
 
 /-- An incomplete header is an EOF failure before its level can be checked. -/
 example : decode [0x42, 0x5a, 0x68] = .error .eof := by decide +kernel
+
+/-- A block whose input ends right after the first code length's 5-bit `curr`, which is 0.
+The range check precedes the next bit read (`decompress.c:326-328`), so `bzip2 -d` reports
+a data error; one byte fewer ends inside the selectors and is an EOF failure. -/
+example : decode
+    [0x42, 0x5a, 0x68, 0x39, 0x31, 0x41, 0x59, 0x26, 0x53, 0x59,
+     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x40,
+     0x00, 0x20, 0x01, 0x00, 0x00] = .error .data := by decide +kernel
+
+example : decode
+    [0x42, 0x5a, 0x68, 0x39, 0x31, 0x41, 0x59, 0x26, 0x53, 0x59,
+     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x40,
+     0x00, 0x20, 0x01, 0x00] = .error .eof := by decide +kernel
+
+/-- A block with one selector whose input ends after 50 one-bit symbols. The missing
+selector for the 51st symbol is checked before its bits are read (`decompress.c:76-79`), so
+`bzip2 -d` reports a data error; one byte fewer is an EOF failure. -/
+example : decode
+    [0x42, 0x5a, 0x68, 0x39, 0x31, 0x41, 0x59, 0x26, 0x53, 0x59,
+     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x60,
+     0x00, 0x20, 0x00, 0x21, 0x27, 0xa8, 0x2b, 0x4f, 0x50, 0x00,
+     0x00, 0x00, 0x00, 0x00, 0x00] = .error .data := by decide +kernel
+
+example : decode
+    [0x42, 0x5a, 0x68, 0x39, 0x31, 0x41, 0x59, 0x26, 0x53, 0x59,
+     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x60,
+     0x00, 0x20, 0x00, 0x21, 0x27, 0xa8, 0x2b, 0x4f, 0x50, 0x00,
+     0x00, 0x00, 0x00, 0x00] = .error .eof := by decide +kernel
 
 end Bzip2.Spec.Format

@@ -1,7 +1,7 @@
 import Bzip2.Oracle.BitIO
 import Bzip2.Oracle.Crc
 import Bzip2.Oracle.Compress.Blocks
-import Bzip2.Oracle.Compress.Bwt
+import Bzip2.Oracle.Compress.ExactBwt
 import Bzip2.Oracle.Compress.Mtf
 import Bzip2.Oracle.Compress.Huffman
 
@@ -95,7 +95,7 @@ def writeBlock (w : BitWriter) (block : Blocks.Block) : BitWriter := Id.run do
   let mut w := writeBytes w #[0x31, 0x41, 0x59, 0x26, 0x53, 0x59]
   w := writeUInt32 w block.crc
   w := w.writeBit false
-  let (last, origPtr) := Bwt.bwt block.data
+  let (last, origPtr) := ExactBwt.bwt block.data
   w := w.writeBits 24 origPtr.toUInt32
   let mtf := Mtf.generateMtf last block.inUse
   let tables := Huffman.choose mtf.syms (mtf.nInUse + 2)

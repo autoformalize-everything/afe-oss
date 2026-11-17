@@ -52,6 +52,21 @@ reviewers check the rest and should not ask for anything beyond these rules and 
   check in seconds. Unit tests of the oracle are `#guard`s in
   `tests/Bzip2/Test/<Part>.lean`. [build]
 
+## Running Lean code
+
+How to check things while you work; reviewers do not hold changes to this section.
+
+- `lean --run`, `#eval` and `#guard` run the interpreter, which is around 50 to 100 times
+  slower than compiled code. Keep what you run that way small: inputs of a few kilobytes, a
+  few hundred cases, seconds in all. A `#guard` also runs in every build.
+- For large blocks (bzip2 allows 900 kB) or timing, run compiled code: `lake build
+  bzip2-oracle`, then `.lake/build/bin/bzip2-oracle -z < input` (or `-d`), and the golden
+  vectors with `lake test`. Do not time anything under the interpreter.
+- A scratch check (outside the repository, e.g. `/tmp/scratch/`) should finish in about a
+  minute. If it does not, shrink it; do not rerun it with a longer timeout.
+- Randomized cross-checks against a naive reference: a few hundred small cases, and keep the
+  naive side naive but small (`n` up to a hundred or so).
+
 ## Changes
 
 - A change does one task. Everything it touches is in the task's `paths`; nothing else is

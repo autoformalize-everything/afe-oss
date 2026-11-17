@@ -7,9 +7,11 @@ The first transform the compressor applies to the input bytes and the last one t
 undoes. A run of 4 to 255 equal bytes is written as 4 copies followed by a count byte
 (0..251) of *further* copies; runs of 1 to 3 bytes are copied unchanged.
 
-Everything here is about the bytes of *one block*. That a run never spans two blocks (the
-compressor flushes the pending run when a block is full) belongs to `Bzip2.Spec.Format`. So does
-the de-randomisation of blocks with the `blockRandomised` bit, which is applied to the bytes
+Everything here is about the bytes of *one block*. When a block fills, the compressor writes it
+without flushing the pending run (`bzlib.c:390-392`); `prepare_new_block` leaves that run intact
+(`bzlib.c:117-126`), so it is written wholly in the next block. A flush or finish does write the
+pending run (`bzlib.c:384-386`). Block boundaries belong to `Bzip2.Spec.Format`. So does the
+de-randomisation of blocks with the `blockRandomised` bit, which is applied to the bytes
 *before* this stage (`BZ_RAND_UPD_MASK` in the randomised branch of `bzlib.c:538-590`), and the
 CRC, which is over the decoded bytes.
 
@@ -21,7 +23,8 @@ References are to `projects/bzip2/upstream/bzlib.c` (commit f5dfc96) unless stat
 have the same logic and differ only in how the next byte is fetched; `decodeRle1` models both.
 The decoder holds the byte `k0` and reads on: after `k0` it reads up to three more bytes, stopping
 at the first one that differs from `k0`; if all three are equal, 4 bytes are equal and the *next*
-byte is read unconditionally as a count (`bzlib.c:659`; alike `584`, `754`, `799`).
+byte is read unconditionally as a count (`bzlib.c:659`; alike `bzlib.c:584`, `bzlib.c:754`,
+`bzlib.c:799`).
 
 Edge cases, each decided in `bzlib.c`:
 
@@ -29,8 +32,8 @@ Edge cases, each decided in `bzlib.c`:
    ended by a different byte, `bzlib.c:639-657`, the non-randomised FAST branch; the others
    are alike).
 2. **Four equal bytes** are always followed by a count byte `c`, and the run is `4 + c`
-   copies (`state_out_len = k1 + 4`, `bzlib.c:659`; alike `584`, `754`, `799`). Nothing in the
-   decoder restricts `c`.
+   copies (`state_out_len = k1 + 4`, `bzlib.c:659`; alike `bzlib.c:584`, `bzlib.c:754`,
+   `bzlib.c:799`). Nothing in the decoder restricts `c`.
 3. **Count bytes above 251** (252..255) are accepted: the run is then 256..259 bytes, longer than
    a compressor ever writes (it cuts runs at 255, so `c ≤ 251`). No error is raised.
 4. **After a count byte the run state is reset.** The byte read right after the count (`k0`,
@@ -42,15 +45,15 @@ Edge cases, each decided in `bzlib.c`:
    (`bzlib.c:658-659`). So the decoder fetches the count
    byte past the end of the block, then `k0` once more, and `nblock_used` reaches
    `save_nblock+2`. The run is written, and then `nblock_used > save_nblock+1` makes the function
-   return `True` (`bzlib.c:560`, `633`, `730`, `779`) and `BZ2_bzDecompress` return
-   `BZ_DATA_ERROR` (`bzlib.c:823`), before the block CRC is looked at. The length of the run
-   written is `4 + garbage`, where the garbage is the byte the inverse-BWT walk yields past the
-   end of the block (not a function of this module's input). `decodeRle1` returns just the 4
+   return `True` (`bzlib.c:560`, `bzlib.c:633`, `bzlib.c:730`, `bzlib.c:779`) and
+   `BZ2_bzDecompress` return `BZ_DATA_ERROR` (`bzlib.c:823`), before the block CRC is looked at.
+   The written run has length `4 + garbage`: the byte the inverse-BWT walk yields past the end
+   of the block (not a function of this module's input). `decodeRle1` returns just the 4
    bytes for this case and `Rle1.Truncated` says that it happened; decoding as a whole fails on
    such a block, so that output is irrelevant.
 6. **A block that ends after a run of fewer than 4 bytes, or right after a count byte**, is fine
-   (`nblock_used == save_nblock+1` gives `return False`, no error: `bzlib.c:557`, `637`, `727`,
-   `776`).
+   (`nblock_used == save_nblock+1` gives `return False`, no error: `bzlib.c:557`,
+   `bzlib.c:637-638`, `bzlib.c:727`, `bzlib.c:776`).
 7. **The empty block** cannot reach this stage: `origPtr >= nblock` is rejected first
    (`decompress.c:497`), so a block has at least one byte. `decodeRle1 [] = []` anyway.
 
@@ -60,7 +63,7 @@ Edge cases, each decided in `bzlib.c`:
 that equals it extends the run, unless the run already has 255 bytes (`state_in_len == 255`,
 `bzlib.c:275-276`); otherwise the pending run is written by `add_pair_to_block`
 (`bzlib.c:216-248`) and the byte starts a new one. Written: 1 to 3 bytes verbatim, otherwise
-4 copies and the byte `len - 4` (`bzlib.c:240-246`); `flush_RL` (`bzlib.c:252`) writes the last
+4 copies and the byte `len - 4` (`bzlib.c:237-245`); `flush_RL` (`bzlib.c:252-256`) writes the last
 run. So a run of 256 equal bytes becomes the 255-run (`a a a a 251`) and then a single `a`; a run
 of 259 becomes `a a a a 251 a a a a 0`. `encodeRle1` models the same state machine.
 (The compressor also stops filling a block early, `bzlib.c:298`; that is a block-boundary matter.)

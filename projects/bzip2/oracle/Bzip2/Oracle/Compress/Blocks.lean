@@ -41,7 +41,7 @@ Facts this module settles, each read off the C code:
   `bzlib.c:1048-1053`), the check `nblock >= nblockMAX`
   (`bzlib.c:390`) runs after `copy_input_until_stop` and closes the block; the pending run is then
   alone in one more block. With the whole input in one `BZ_FINISH` call
-  (`BZ2_bzBuffToBuffCompress`, `bzlib.c:1250-1351`, call at `bzlib.c:1282`) `avail_in_expect`
+  (`BZ2_bzBuffToBuffCompress`, `bzlib.c:1250-1298`, call at `bzlib.c:1282`) `avail_in_expect`
   is `0` as well (`bzlib.c:384`), so `flush_RL` first writes the pending run into the full block,
   which is the last. `split` takes the choice as `oneShot` (default: the program's,
   `bzip2 -<level>`).

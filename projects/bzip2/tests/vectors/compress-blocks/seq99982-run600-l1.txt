@@ -1,0 +1,8 @@
+input seq 99982 run 9 600 seq 7
+level 1
+program
+block 99981 e49508f3 6a25c1cf ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+block 23 11c266f3 1bbfe1fb f720000000000000000004000000000000020000000000000000000000000080
+oneshot
+block 99981 e49508f3 6a25c1cf ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+block 23 11c266f3 1bbfe1fb f720000000000000000004000000000000020000000000000000000000000080

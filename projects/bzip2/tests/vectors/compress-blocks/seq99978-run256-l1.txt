@@ -1,0 +1,7 @@
+input seq 99978 run 9 256
+level 1
+program
+block 99983 2500cfcc ccf91b3f ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+block 1 933eb044 0c0c6824 0020000000000000000000000000000000000000000000000000000000000000
+oneshot
+block 99984 1c17a1cf e225d602 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff

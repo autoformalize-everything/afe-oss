@@ -1,7 +1,7 @@
 import Bzip2.Oracle.Compress.Bwt
 
 /-! Unit tests of `Bzip2.Oracle.Compress.Bwt`: the forward BWT against a naive sort of all
-rotations on small blocks, known examples, and the sizes of long blocks. -/
+rotations on small blocks, known examples, and 900 000-byte blocks (inverted by the standard last-to-first walk). -/
 
 open Bzip2.Oracle.Compress.Bwt
 
@@ -52,10 +52,47 @@ def agrees : Bool :=
 #guard bwt "abab".toUTF8 == ("bbaa".toUTF8, 0)
 #guard bwt "baba".toUTF8 == ("bbaa".toUTF8, 2)
 
--- Long blocks, small enough for the interpreter: a run of one byte (the worst case for
--- comparison sorts, ⌈log₂ n⌉ rounds here) and pseudo-random bytes.
-#guard (bwt (ByteArray.mk (Array.replicate 20000 7))).2 == 0
-#guard (bwt (ByteArray.mk (Array.replicate 20000 7))).1.size == 20000
-#guard (bwt (sample 1 20000 256)).1.size == 20000
+/-- Inverts a transform: the block whose last column is `out` and whose row `orig` is the
+block, by the last-to-first walk (the walk `BZ2_bzDecompress` does with `tt`). -/
+def invert (out : ByteArray) (orig : Nat) : ByteArray := Id.run do
+  let n := out.size
+  let mut cnt : Array Nat := Array.replicate 256 0
+  for i in [0:n] do
+    cnt := cnt.modify out[i]!.toNat (· + 1)
+  let mut sum := 0
+  for b in [0:256] do
+    let x := cnt[b]!
+    cnt := cnt.set! b sum
+    sum := sum + x
+  let mut tt : Array Nat := Array.replicate n 0
+  for i in [0:n] do
+    let b := out[i]!.toNat
+    tt := tt.set! cnt[b]! i
+    cnt := cnt.modify b (· + 1)
+  let mut res := ByteArray.emptyWithCapacity n
+  let mut pos := orig
+  for _ in [0:n] do
+    pos := tt[pos]!
+    res := res.push out[pos]!
+  return res
+
+/-- Whether `bwt` of `b` inverts back to `b`. -/
+def roundTrips (b : ByteArray) : Bool :=
+  let r := bwt b
+  invert r.1 r.2 == b
+
+#guard roundTrips "banana".toUTF8
+#guard (List.range 40).all fun len => roundTrips (sample len len 3)
+
+-- A run of one byte is the worst case for comparison sorts. Its rotations are all equal, so
+-- `origPtr` is row 0 and the last column is the run itself.
+#guard bwt (ByteArray.mk (Array.replicate 900000 7)) == (ByteArray.mk (Array.replicate 900000 7), 0)
+
+-- A random block: the last column is a permutation of the block, sorted rows agree with the
+-- first column, and the inverse gives the block back.
+#guard
+  let b := sample 1 900000 256
+  let r := bwt b
+  r.1.size == 900000 && r.2 < 900000 && invert r.1 r.2 == b
 
 end Bzip2.Test.CompressBwt

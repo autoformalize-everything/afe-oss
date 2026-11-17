@@ -58,10 +58,37 @@ static const char *verdict(int status)
     }
 }
 
-static void fail(const char *what, int c_status, int oracle_status)
+static void fail(const char *what)
 {
-    fprintf(stderr, "decompress_diff: %s (libbz2 %d, oracle %d)\n",
-            what, c_status, oracle_status);
+    fprintf(stderr, "AFE-FUZZ: %s\n", what);
+    abort();
+}
+
+static const char *status_name(int status)
+{
+    switch (status) {
+    case BZ_OK: return "BZ_OK";
+    case BZ_RUN_OK: return "BZ_RUN_OK";
+    case BZ_FLUSH_OK: return "BZ_FLUSH_OK";
+    case BZ_FINISH_OK: return "BZ_FINISH_OK";
+    case BZ_STREAM_END: return "BZ_STREAM_END";
+    case BZ_SEQUENCE_ERROR: return "BZ_SEQUENCE_ERROR";
+    case BZ_PARAM_ERROR: return "BZ_PARAM_ERROR";
+    case BZ_MEM_ERROR: return "BZ_MEM_ERROR";
+    case BZ_DATA_ERROR: return "BZ_DATA_ERROR";
+    case BZ_DATA_ERROR_MAGIC: return "BZ_DATA_ERROR_MAGIC";
+    case BZ_IO_ERROR: return "BZ_IO_ERROR";
+    case BZ_UNEXPECTED_EOF: return "BZ_UNEXPECTED_EOF";
+    case BZ_OUTBUFF_FULL: return "BZ_OUTBUFF_FULL";
+    case BZ_CONFIG_ERROR: return "BZ_CONFIG_ERROR";
+    case BZIP2_ORACLE_UNIMPLEMENTED: return "BZIP2_ORACLE_UNIMPLEMENTED";
+    default: return "unknown";
+    }
+}
+
+static void unexpected_status(int status)
+{
+    fprintf(stderr, "AFE-FUZZ: unexpected status %s\n", status_name(status));
     abort();
 }
 
@@ -70,8 +97,9 @@ static unsigned c_consumed(char *source, unsigned size, unsigned expected_len)
 {
     bz_stream strm;
     memset(&strm, 0, sizeof(strm));
-    if (BZ2_bzDecompressInit(&strm, 0, 0) != BZ_OK)
-        fail("BZ2_bzDecompressInit failed", BZ_OK, BZ_OK);
+    int init = BZ2_bzDecompressInit(&strm, 0, 0);
+    if (init != BZ_OK)
+        unexpected_status(init);
     strm.next_in = source;
     strm.avail_in = size;
     strm.next_out = output;
@@ -80,8 +108,10 @@ static unsigned c_consumed(char *source, unsigned size, unsigned expected_len)
     unsigned avail_in = strm.avail_in;
     unsigned written = OUTPUT_CAP - strm.avail_out;
     BZ2_bzDecompressEnd(&strm);
-    if (ret != BZ_STREAM_END || written != expected_len)
-        fail("BZ2_bzDecompress disagrees with BZ2_bzBuffToBuffDecompress", ret, BZ_OK);
+    if (ret != BZ_STREAM_END)
+        unexpected_status(ret);
+    if (written != expected_len)
+        fail("output length differs");
     return size - avail_in;
 }
 
@@ -184,37 +214,26 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         return -1; /* skipped: libFuzzer does not add it to the corpus */
     }
     if (verdict(c_status) == NULL)
-        fail("unexpected libbz2 status", c_status, 0);
+        unexpected_status(c_status);
 
     bzip2_oracle_result result = {0};
     int oracle_status = bzip2_oracle_decompress_stream(data, size, &result);
     if (verdict(oracle_status) == NULL)
-        fail("unexpected oracle status", c_status, oracle_status);
+        unexpected_status(oracle_status);
     if (oracle_status != c_status) {
-        fprintf(stderr, "decompress_diff: libbz2 says %s, oracle says %s\n",
+        fprintf(stderr, "AFE-FUZZ: verdict libbz2=%s oracle=%s\n",
                 verdict(c_status), verdict(oracle_status));
-        fail("verdicts differ", c_status, oracle_status);
+        abort();
     }
 
     if (c_status == BZ_OK) {
-        if (result.size != c_len) {
-            fprintf(stderr, "decompress_diff: libbz2 gives %u bytes, oracle %zu\n",
-                    c_len, result.size);
-            fail("output lengths differ", c_status, oracle_status);
-        }
-        if (c_len != 0 && memcmp(output, result.data, c_len) != 0) {
-            size_t i = 0;
-            while (output[i] == (char)result.data[i])
-                i++;
-            fprintf(stderr, "decompress_diff: outputs first differ at byte %zu\n", i);
-            fail("outputs differ", c_status, oracle_status);
-        }
+        if (result.size != c_len)
+            fail("output length differs");
+        if (c_len != 0 && memcmp(output, result.data, c_len) != 0)
+            fail("output differs");
         unsigned consumed = c_consumed(source, (unsigned)size, c_len);
-        if (result.consumed != consumed) {
-            fprintf(stderr, "decompress_diff: libbz2 consumed %u bytes, oracle %zu\n",
-                    consumed, result.consumed);
-            fail("consumed input lengths differ", c_status, oracle_status);
-        }
+        if (result.consumed != consumed)
+            fail("consumed differs");
     }
     bzip2_oracle_result_free(&result);
     free(source);

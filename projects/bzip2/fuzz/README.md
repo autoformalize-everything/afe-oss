@@ -47,9 +47,10 @@ Run it from the repository root (it builds first when a source is newer than the
     projects/bzip2/fuzz/run.sh decompress 120
 
 It reads and grows `corpus/decompress/`, reads `corpus/seed/`, and writes a crashing input to
-`build/artifacts/decompress/crash-<sha1>`, after printing which check failed (for instance
-`decompress_diff: libbz2 says data, oracle says eof`). The exit status is non-zero when it
-found something.
+`build/artifacts/decompress/crash-<sha1>`, after printing a stable disagreement line (for
+instance `AFE-FUZZ: verdict libbz2=data oracle=eof`). The exit status is non-zero when it
+found something. The standing campaign is configured in afe-tasks' `tasks/bzip2/fuzz.toml`
+and run by `afe-fleet fuzz run`.
 
 Longer campaigns: arguments after the seconds go to libFuzzer and override the defaults
 (`-timeout=60`). In parallel, sharing one corpus and carrying on past crashes:

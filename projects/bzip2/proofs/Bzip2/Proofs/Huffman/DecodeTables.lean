@@ -583,4 +583,84 @@ theorem limitLoop_get (length : Array UInt8) (hne : 0 < length.size)
   · rw [ite_of_true h, ite_of_true (by omega)]
   · rw [ite_of_false h, ite_of_false (by omega)]
 
+/-- `base` is the spec's, below `maxCodeLen`. -/
+theorem fixLoop_get (length : Array UInt8) (hne : 0 < length.size)
+    (hlegal : ∀ x ∈ lensOf length, 1 ≤ x ∧ x ≤ 20) (m M : Nat)
+    (hm : m = Spec.Huffman.minLen (lensOf length)) (hM : M = Spec.Huffman.maxLen (lensOf length))
+    (n : Nat) (hn : n < maxCodeLen) :
+    (fixLoop (limitLoop (sumLoop (countLoop length)) m M).1 (sumLoop (countLoop length)) m M)[n]! =
+      Spec.Huffman.base (lensOf length) n := by
+  have h23 : maxCodeLen = 23 := rfl
+  have hne' : lensOf length ≠ [] := by
+    intro h
+    have := lensOf_length length
+    rw [h] at this
+    simp only [List.length_nil] at this
+    omega
+  obtain ⟨hm1, hmM, hM20, _⟩ := minLen_maxLen (lensOf length) hne' hlegal
+  have hm1' : 1 ≤ m := by rw [hm]; exact hm1
+  have hmM' : m ≤ M := by rw [hm, hM]; exact hmM
+  have hM20' : M ≤ 20 := by rw [hM]; exact hM20
+  obtain ⟨hsz, hbase⟩ := sumLoop_get length hlegal
+  have hfix := (fixLoop_inv (limitLoop (sumLoop (countLoop length)) m M).1
+    (sumLoop (countLoop length)) m (M + 1 - (m + 1)) (by omega)).2 n
+  unfold fixLoop
+  rw [hfix, Spec.Huffman.base, ← hm, ← hM, hbase n hn, limitLoop_get length hne hlegal m M hm hM]
+  by_cases h : m < n ∧ n ≤ M
+  · rw [ite_of_true (by omega), ite_of_true h]
+    omega
+  · rw [ite_of_false (by omega), ite_of_false h]
+
+/-- `perm` starts with the spec's `perm`. -/
+theorem permLoop_get (length : Array UInt8) (hne : 0 < length.size)
+    (hle : length.size ≤ maxAlphaSize) (hlegal : ∀ x ∈ lensOf length, 1 ≤ x ∧ x ≤ 20)
+    (m M : Nat) (hm : m = Spec.Huffman.minLen (lensOf length))
+    (hM : M = Spec.Huffman.maxLen (lensOf length)) :
+    (permLoop length m M).1.size = maxAlphaSize ∧
+    ∀ k < (Spec.Huffman.perm (lensOf length)).length,
+      (permLoop length m M).1[k]! = (Spec.Huffman.perm (lensOf length)).getD k 0 := by
+  have hne' : lensOf length ≠ [] := by
+    intro h
+    have := lensOf_length length
+    rw [h] at this
+    simp only [List.length_nil] at this
+    omega
+  have hlen := perm_length (lensOf length) hne' hlegal
+  have hlist : Spec.Huffman.perm (lensOf length) =
+      (List.range' m (M + 1 - m)).flatMap fun i =>
+        (List.range' 0 length.size).filter (fun j => length[j]!.toNat == i) := by
+    rw [Spec.Huffman.perm, ← hm, ← hM, lensOf_length]
+    simp only [symLen_eq, List.range_eq_range']
+  have h := perm_outer length (List.range' m (M + 1 - m)) (Array.replicate maxAlphaSize 0, 0) []
+    ⟨by simp, by simp, fun k hk => absurd hk (by simp)⟩ (by
+      rw [← hlist, hlen, lensOf_length]; simpa using hle)
+  rw [List.nil_append, ← hlist] at h
+  exact ⟨h.1, h.2.2⟩
+
+/-- The tables the oracle builds for a coding table with code lengths `length`: what
+`Header.parse` stores (`decompress.c:339-352`, `minLen` and `maxLen` the least and greatest
+length). -/
+def tablesOf (length : Array UInt8) : Tables :=
+  createDecodeTables length (length.foldl (fun m l => min m l.toNat) 32)
+    (length.foldl (fun m l => max m l.toNat) 0)
+
+/-- On every table of a stream (1 to 258 lengths, each in `1 .. 20`), the oracle's `minLen`,
+`limit`, `base` and `perm` are the spec's: `perm` entry by entry for the symbols, and the arrays
+of `limit` and `base` index by index (`limit` is 0 past `maxCodeLen`, which the spec's is too;
+`base` is compared below `maxCodeLen`, the C array's size). -/
+theorem tablesOf_eq_spec (length : Array UInt8) (hne : 0 < length.size)
+    (hle : length.size ≤ maxAlphaSize) (hlegal : ∀ x ∈ lensOf length, 1 ≤ x ∧ x ≤ 20) :
+    (tablesOf length).minLen = Spec.Huffman.minLen (lensOf length) ∧
+    (∀ n, (tablesOf length).limit[n]! = Spec.Huffman.limit (lensOf length) n) ∧
+    (∀ n < maxCodeLen, (tablesOf length).base[n]! = Spec.Huffman.base (lensOf length) n) ∧
+    (tablesOf length).perm.size = maxAlphaSize ∧
+    ∀ k < (Spec.Huffman.perm (lensOf length)).length,
+      (tablesOf length).perm[k]! = (Spec.Huffman.perm (lensOf length)).getD k 0 := by
+  unfold tablesOf
+  rw [minLenOf_eq, maxLenOf_eq, createDecodeTables_eq]
+  refine ⟨rfl, fun n => ?_, fun n hn => ?_, ?_⟩
+  · exact limitLoop_get length hne hlegal _ _ rfl rfl n
+  · exact fixLoop_get length hne hlegal _ _ rfl rfl n hn
+  · exact permLoop_get length hne hle hlegal _ _ rfl rfl
+
 end Bzip2.Proofs.Huffman.DecodeTables
